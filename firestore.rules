@@ -42,44 +42,14 @@ service cloud.firestore {
     }
 
     match /vendors/{vendorId} {
-      allow delete: if true;
-      allow read: if true; // Publicly listable for now to select vendor
-      allow create: if isValidId(vendorId) && isValidVendor(incoming());
-      allow update: if isValidVendor(incoming()) && (
-        incoming().diff(existing()).affectedKeys().hasOnly(['name', 'phone', 'fax', 'representative', 'businessNumber', 'email', 'password', 'updatedAt', 'notes', 'priceTableUrl', 'priceTableFileType', 'priceTableFileName', 'useRounding', 'masterCustomFlag', 'handlingDetails'])
-      );
+      allow read, write: if true;
 
       match /prices/{priceId} {
-        function isValidPrice(data) {
-          return data.itemName is string && data.itemName.size() > 0 && data.itemName.size() <= 200
-              && data.unitPrice is number && data.unitPrice >= 0
-              && (data.costPrice == null || data.costPrice is number)
-              && (data.negoRate == null || data.negoRate is number)
-              && (data.spec == null || data.spec is string)
-              && (data.unit == null || data.unit is string)
-              && (data.remarks == null || data.remarks is string)
-              && (data.maker == null || data.maker is string)
-              && (data.isConfirmed == null || data.isConfirmed is bool)
-              && (data.order == null || data.order is number);
-        }
-
-        allow read: if true; 
-        allow create: if isValidPrice(incoming());
-        allow update: if isValidPrice(incoming());
-        allow delete: if true;
+        allow read, write: if true;
       }
 
       match /handling_items/{itemId} {
-        function isValidHandlingItem(data) {
-          return data.category is string && data.category.size() > 0 && data.category.size() <= 200
-              && (data.vendor1 == null || data.vendor1 is string)
-              && (data.vendor2 == null || data.vendor2 is string)
-              && (data.vendor3 == null || data.vendor3 is string)
-              && (data.vendor4 == null || data.vendor4 is string)
-              && (data.order == null || data.order is number);
-        }
-        allow read: if true;
-        allow write: if true; // Keeping it simple for development, restrictive in production
+        allow read, write: if true;
       }
     }
   }

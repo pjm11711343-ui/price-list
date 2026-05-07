@@ -731,6 +731,7 @@ export default function App() {
       vendor3: '',
       vendor4: '',
       order: comparisonRows.length,
+      updatedAt: serverTimestamp()
     };
 
     try {
