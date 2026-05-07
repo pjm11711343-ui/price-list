@@ -48,7 +48,7 @@ import {
   deleteObject
 } from 'firebase/storage';
 import { db, auth, storage } from './lib/firebase';
-import { Vendor, PriceItem, ComparisonRow } from './types';
+import { Vendor, PriceItem, HandledItem, ComparisonRow } from './types';
 import { ALL_VENDORS } from './data/seedData';
 
 // Error Handling Types
@@ -148,9 +148,13 @@ export default function App() {
   const [isNotesExpanded, setIsNotesExpanded] = useState(true);
   const [isMatrixExpanded, setIsMatrixExpanded] = useState(false);
   const [comparisonRows, setComparisonRows] = useState<ComparisonRow[]>([]);
+  const [handledItems, setHandledItems] = useState<HandledItem[]>([]);
+  const [allHandledItems, setAllHandledItems] = useState<{[key: string]: HandledItem[]}>({});
+  const [isAddingHandledItem, setIsAddingHandledItem] = useState(false);
   const [isAddingComparisonRow, setIsAddingComparisonRow] = useState(false);
   const [usdToKrw, setUsdToKrw] = useState<number>(1350);
   const [lastRateUpdate, setLastRateUpdate] = useState<string>("");
+  const [savingHandledId, setSavingHandledId] = useState<string | null>(null);
   const [savingMatrixId, setSavingMatrixId] = useState<string | null>(null);
 
   const canManageItems = isAdminMode || (selectedVendor && isVerified === selectedVendor.id);
@@ -363,28 +367,50 @@ export default function App() {
   const downloadPriceTemplate = () => {
     const templateData = [
       {
-        '카테고리': '배관재',
-        '하위 카테고리': '강관',
-        '품명': '무계목 강관',
-        '규격': '100A SCH40',
-        '단위': 'M',
-        '단가': 15000,
-        '비고': '신규 모델'
+        '카테고리 (Category)': '배관재',
+        '하위 카테고리 (Sub-Category)': '강관',
+        '품명 (Item Name) *': '무계목 강관',
+        '규격 (Spec)': '100A SCH40',
+        '단위 (Unit)': 'M',
+        '협가 (Negotiated Price) *': 15000,
+        '네고율 (Nego Rate %)': 0,
+        '제조사 (Maker)': '현대제철',
+        '비고 (Remarks)': '신규 모델',
+        '품목 코드 (Item Code)': 'P-STEEL-001',
+        '제조사 파트 번호 (MPN)': 'MPN-12345',
+        '공급사 품목 코드 (Supplier SKU)': 'S-SKU-99'
       },
       {
-        '카테고리': '배관재',
-        '하위 카테고리': '밸브',
-        '품명': '게이트 밸브',
-        '규격': '50A',
-        '단위': 'EA',
-        '단가': 25000,
-        '비고': '내식성 강화'
+        '카테고리 (Category)': '배관재',
+        '하위 카테고리 (Sub-Category)': '밸브',
+        '품명 (Item Name) *': '게이트 밸브',
+        '규격 (Spec)': '50A',
+        '단위 (Unit)': 'EA',
+        '협가 (Negotiated Price) *': 25000,
+        '네고율 (Nego Rate %)': 5,
+        '제조사 (Maker)': 'K-VALVE',
+        '비고 (Remarks)': '내식성 강화',
+        '품목 코드 (Item Code)': 'V-GATE-050',
+        '제조사 파트 번호 (MPN)': 'V-MPN-777',
+        '공급사 품목 코드 (Supplier SKU)': 'V-SKU-11'
       }
     ];
 
     const ws = XLSX.utils.json_to_sheet(templateData);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "단가표_양식");
+    
+    // Add instruction sheet
+    const instructions = [
+      ['항목명', '설명', '필수 여부'],
+      ['품명 (Item Name)', '제품의 명칭을 입력합니다.', '필수'],
+      ['협가 (Negotiated Price)', '네고 전의 기본 단가를 입력합니다.', '필수'],
+      ['네고율 (Nego Rate %)', '할인율을 숫자로만 입력합니다 (예: 5).', '선택'],
+      ['품목 코드 / MPN / SKU', '관리용 식별 번호를 입력합니다.', '선택']
+    ];
+    const wsIns = XLSX.utils.aoa_to_sheet(instructions);
+    XLSX.utils.book_append_sheet(wb, wsIns, "작성방법(Instructions)");
+
     XLSX.writeFile(wb, "ERP_단가표_업로드_양식.xlsx");
   };
 
@@ -441,6 +467,27 @@ export default function App() {
     reader.readAsBinaryString(bulkItemFile);
   };
 
+  // Fetch all handled items for all vendors when in matrix mode
+  useEffect(() => {
+    if (viewMode === 'matrix' && vendors.length > 0) {
+      const unsubscribes: (() => void)[] = [];
+      
+      vendors.forEach(vendor => {
+        const q = query(
+          collection(db, 'vendors', vendor.id, 'handled_items'), 
+          orderBy('order', 'asc')
+        );
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+          const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as HandledItem));
+          setAllHandledItems(prev => ({ ...prev, [vendor.id]: data }));
+        });
+        unsubscribes.push(unsubscribe);
+      });
+
+      return () => unsubscribes.forEach(unsub => unsub());
+    }
+  }, [viewMode, vendors.length]);
+
   // Fetch Comparison Rows
   useEffect(() => {
     const q = query(collection(db, 'comparison_matrix'), orderBy('order', 'asc'));
@@ -450,6 +497,23 @@ export default function App() {
     });
     return unsubscribe;
   }, []);
+
+  // Fetch Handled Items for selected vendor
+  useEffect(() => {
+    if (selectedVendor) {
+      const q = query(
+        collection(db, 'vendors', selectedVendor.id, 'handled_items'), 
+        orderBy('order', 'asc')
+      );
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as HandledItem));
+        setHandledItems(data);
+      });
+      return unsubscribe;
+    } else {
+      setHandledItems([]);
+    }
+  }, [selectedVendor]);
 
   // Fetch Vendors
   useEffect(() => {
@@ -714,6 +778,24 @@ export default function App() {
     }
   };
 
+  const handleAddHandledItem = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!selectedVendor) return;
+    const formData = new FormData(e.currentTarget);
+    const newItem = {
+      category: formData.get('category') as string,
+      detail: formData.get('detail') as string,
+      order: handledItems.length,
+    };
+
+    try {
+      await addDoc(collection(db, 'vendors', selectedVendor.id, 'handled_items'), newItem);
+      setIsAddingHandledItem(false);
+    } catch (error) {
+      console.error("Error adding handled item:", error);
+    }
+  };
+
   const handleAddComparisonRow = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
@@ -741,7 +823,6 @@ export default function App() {
         [field]: value,
         updatedAt: serverTimestamp()
       });
-      // Keeping the success indicator for a bit
       setTimeout(() => setSavingMatrixId(null), 1500);
     } catch (error) {
       console.error("Error updating comparison row:", error);
@@ -749,8 +830,76 @@ export default function App() {
     }
   };
 
+  const handleMatrixBulkUpload = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      setLoading(true);
+      try {
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        // Header: 구분품명, 업체명1, 업체명2, 업체명3, 업체명4
+        const data = XLSX.utils.sheet_to_json(ws) as any[];
+
+        let count = 0;
+        for (const row of data) {
+          const newRow = {
+            category: String(row['구분품명'] || row['구분'] || row['품명'] || ''),
+            vendor1: String(row['업체명1'] || row['업체1'] || ''),
+            vendor2: String(row['업체명2'] || row['업체2'] || ''),
+            vendor3: String(row['업체명3'] || row['업체3'] || ''),
+            vendor4: String(row['업체명4'] || row['업체4'] || ''),
+            order: count,
+            updatedAt: serverTimestamp()
+          };
+
+          if (newRow.category) {
+            await addDoc(collection(db, "comparison_matrix"), newRow);
+            count++;
+          }
+        }
+        alert(`${count}개의 품목 구분이 성공적으로 등록되었습니다.`);
+      } catch (error) {
+        console.error("Matrix upload error:", error);
+        alert("업로드 중 오류가 발생했습니다. 양식을 확인해주세요.");
+      } finally {
+        setLoading(false);
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  const updateHandledItem = async (id: string, field: string, value: string) => {
+    if (!selectedVendor) return;
+    try {
+      setSavingHandledId(id);
+      await updateDoc(doc(db, 'vendors', selectedVendor.id, 'handled_items', id), {
+        [field]: value,
+        updatedAt: serverTimestamp()
+      });
+      // Keeping the success indicator for a bit
+      setTimeout(() => setSavingHandledId(null), 1500);
+    } catch (error) {
+      console.error("Error updating handled item:", error);
+      setSavingHandledId(null);
+    }
+  };
+
   // Debounced wrapper for real-time saving
   const debouncedUpdateRefs = React.useRef<{[key: string]: NodeJS.Timeout}>({});
+  const handleHandledItemChange = (id: string, field: string, value: string) => {
+    const key = `${id}-${field}`;
+    if (debouncedUpdateRefs.current[key]) {
+      clearTimeout(debouncedUpdateRefs.current[key]);
+    }
+    
+    debouncedUpdateRefs.current[key] = setTimeout(() => {
+      updateHandledItem(id, field, value);
+      delete debouncedUpdateRefs.current[key];
+    }, 800); // Save after 800ms of inactivity
+  };
+
   const handleMatrixChange = (id: string, field: string, value: string) => {
     const key = `${id}-${field}`;
     if (debouncedUpdateRefs.current[key]) {
@@ -760,7 +909,7 @@ export default function App() {
     debouncedUpdateRefs.current[key] = setTimeout(() => {
       updateComparisonRow(id, field, value);
       delete debouncedUpdateRefs.current[key];
-    }, 800); // Save after 800ms of inactivity
+    }, 800);
   };
 
   const moveComparisonRow = async (rowIndex: number, direction: 'up' | 'down') => {
@@ -784,6 +933,33 @@ export default function App() {
         await deleteDoc(doc(db, 'comparison_matrix', id));
       } catch (error) {
         console.error("Error deleting comparison row:", error);
+      }
+    }
+  };
+
+  const moveHandledItem = async (rowIndex: number, direction: 'up' | 'down') => {
+    if (!selectedVendor) return;
+    const newIndex = direction === 'up' ? rowIndex - 1 : rowIndex + 1;
+    if (newIndex < 0 || newIndex >= handledItems.length) return;
+
+    const row1 = handledItems[rowIndex];
+    const row2 = handledItems[newIndex];
+
+    try {
+      await updateDoc(doc(db, 'vendors', selectedVendor.id, 'handled_items', row1.id), { order: newIndex });
+      await updateDoc(doc(db, 'vendors', selectedVendor.id, 'handled_items', row2.id), { order: rowIndex });
+    } catch (error) {
+      console.error("Error moving item:", error);
+    }
+  };
+
+  const deleteHandledItem = async (id: string) => {
+    if (!selectedVendor) return;
+    if (window.confirm('항목을 삭제하시겠습니까?')) {
+      try {
+        await deleteDoc(doc(db, 'vendors', selectedVendor.id, 'handled_items', id));
+      } catch (error) {
+        console.error("Error deleting handled item:", error);
       }
     }
   };
@@ -912,20 +1088,23 @@ export default function App() {
         let importCount = 0;
 
         for (const row of data) {
-          const costPrice = Number(row['협가'] || row['Negotiated Price'] || 0);
-          const negoRate = Number(row['네고율'] || row['Nego Rate'] || 0);
+          const costPrice = Number(row['협가 (Negotiated Price) *'] || row['협가'] || row['Negotiated Price'] || row['단가'] || 0);
+          const negoRate = Number(row['네고율 (Nego Rate %)'] || row['네고율'] || row['Nego Rate'] || 0);
           const unitPrice = calculatePrice(costPrice, negoRate);
 
           const newItem = {
             vendorId: selectedVendor.id,
-            itemName: row['품목명'] || row['품목'] || '',
-            spec: row['규격'] || '',
-            unit: row['단위'] || '',
-            maker: row['메이커'] || row['제조사'] || '',
+            itemName: row['품명 (Item Name) *'] || row['품목명'] || row['품목'] || row['품명'] || '',
+            spec: row['규격 (Spec)'] || row['규격'] || '',
+            unit: row['단위 (Unit)'] || row['단위'] || '',
+            maker: row['제조사 (Maker)'] || row['메이커'] || row['제조사'] || '',
+            itemCode: row['품목 코드 (Item Code)'] || row['품목 코드'] || '',
+            mpn: row['제조사 파트 번호 (MPN)'] || row['파트번호'] || '',
+            supplierItemCode: row['공급사 품목 코드 (Supplier SKU)'] || row['공급사코드'] || '',
             costPrice,
             negoRate,
             unitPrice,
-            remarks: row['비고'] || '',
+            remarks: row['비고 (Remarks)'] || row['비고'] || '',
             order: priceItems.length + importCount + 1,
           };
 
@@ -1113,22 +1292,12 @@ export default function App() {
                     {isAdminMode && (
                       <button 
                         onClick={(e) => deleteVendor(vendor.id, e)}
-                        className="p-2 hover:bg-red-500/20 active:bg-red-500/30 rounded-lg transition-all text-red-400 hover:text-red-300"
+                        className="p-2 hover:bg-slate-700 active:bg-slate-600 rounded-lg transition-all text-slate-500 hover:text-red-400 opacity-0 group-hover:opacity-100"
                         title="업체 삭제"
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>
                     )}
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); handleSelectVendor(vendor); }}
-                      className="p-2 hover:bg-slate-700 active:bg-slate-600 rounded-lg transition-all"
-                    >
-                      {isVerified === vendor.id ? (
-                        <Unlock className="h-4 w-4 text-indigo-400 opacity-80" />
-                      ) : (
-                        <Lock className="h-4 w-4 text-slate-500" />
-                      )}
-                    </button>
                   </div>
                 </motion.div>
               ))}
@@ -1136,70 +1305,171 @@ export default function App() {
           </div>
         </nav>
 
-        <div className="p-6 border-t border-slate-800 mt-auto bg-slate-900/50">
-          <div className="flex items-center justify-between mb-2">
+        {/* Sidebar Footer - Admin Login */}
+        <div className="p-4 border-t border-slate-800 bg-slate-900/50">
+          {!isAdminMode ? (
             <button 
-              onClick={() => isAdminMode ? setIsAdminMode(false) : setShowAdminLogin(true)}
-              className={`text-[10px] font-bold px-2 py-1 rounded transition-colors ${
-                isAdminMode ? 'bg-amber-500/20 text-amber-500 hover:bg-amber-500/30' : 'text-slate-500 hover:text-white hover:bg-slate-800'
-              }`}
+              onClick={() => setShowAdminLogin(true)}
+              className="w-full py-3 px-4 flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:text-white hover:bg-slate-800 rounded-xl transition-all border border-transparent hover:border-slate-700"
             >
-              {isAdminMode ? '관리자 모드 해제' : '관리자 로그인'}
+              <Lock className="h-3 w-3" />
+              Administrator Login
             </button>
-          </div>
-          <p className="text-slate-600 text-[10px] text-center">© 2024 ERP Cost System</p>
+          ) : (
+            <button 
+              onClick={() => setIsAdminMode(false)}
+              className="w-full py-3 px-4 flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest text-indigo-400 hover:text-white hover:bg-indigo-600 rounded-xl transition-all border border-indigo-900"
+            >
+              <Unlock className="h-3 w-3" />
+              Admin Mode Active (Logout)
+            </button>
+          )}
         </div>
       </aside>
       )}
 
-      {/* Main Content */}
-      <main className="flex-1 flex flex-col relative overflow-hidden">
+      {/* Main Content Area */}
+      <main className="flex-1 flex flex-col min-w-0 bg-white relative">
         {viewMode === 'matrix' ? (
-          <div className="flex-1 flex flex-col h-full bg-white">
-            <header className="px-8 py-6 border-b border-slate-200 shrink-0">
+          <div className="flex-1 flex flex-col h-full bg-slate-50 overflow-hidden">
+            <header className="px-8 py-6 border-b border-slate-200 bg-white shrink-0 shadow-sm z-10">
               <div className="flex items-center justify-between">
                 <div>
-                  <h1 className="text-2xl font-black text-slate-900 leading-tight">Vendor Handling Matrix</h1>
-                  <p className="text-xs text-slate-500">업체별 취급 품목 및 단가 통합 비교</p>
+                  <h1 className="text-2xl font-black text-slate-900 leading-tight">Vendor Capability Matrix</h1>
+                  <p className="text-xs text-slate-500">전체 업체별 취급 품목 및 역량 통합 비교</p>
                 </div>
-                <button 
-                  onClick={() => setViewMode('detail')}
-                  className="px-4 py-2 bg-slate-100 text-slate-600 rounded-lg text-xs font-bold hover:bg-slate-200 transition-colors"
-                >
-                  상세 보기로 돌아가기
-                </button>
+                <div className="flex items-center gap-3">
+                  {isAdminMode && (
+                    <label className="flex items-center gap-2 px-6 py-2.5 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-100 cursor-pointer">
+                      <Upload className="h-4 w-4" />
+                      Matrix 엑셀 업로드
+                      <input 
+                        type="file" 
+                        className="hidden" 
+                        accept=".xlsx,.xls" 
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleMatrixBulkUpload(file);
+                        }}
+                      />
+                    </label>
+                  )}
+                  {isAdminMode && (
+                    <button 
+                      onClick={() => setIsAddingComparisonRow(true)}
+                      className="px-6 py-2.5 bg-indigo-600 text-white rounded-xl text-xs font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 flex items-center gap-2"
+                    >
+                      <Plus className="h-4 w-4" />
+                      항목 추가
+                    </button>
+                  )}
+                  <button 
+                    onClick={() => setViewMode('detail')}
+                    className="px-6 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-200 transition-all"
+                  >
+                    상세 보기로 돌아가기
+                  </button>
+                </div>
               </div>
             </header>
             <div className="flex-1 overflow-auto p-8">
-              <div className="inline-block min-w-full align-middle border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+              <div className="inline-block min-w-full align-middle border border-slate-200 rounded-2xl overflow-hidden shadow-sm bg-white">
                 <table className="min-w-full divide-y divide-slate-200">
                   <thead className="bg-slate-900">
                     <tr>
-                      <th className="px-6 py-4 text-xs font-black text-white uppercase tracking-wider text-left border-r border-slate-800 w-[300px]">
-                        구분 품명 (Category)
+                      <th className="px-6 py-4 text-xs font-black text-white uppercase tracking-wider text-left border-r border-slate-800 w-[200px]">
+                        구분품명
                       </th>
-                      <th className="px-6 py-4 text-xs font-black text-slate-300 uppercase tracking-wider">업체명1</th>
-                      <th className="px-6 py-4 text-xs font-black text-slate-300 uppercase tracking-wider">업체명2</th>
-                      <th className="px-6 py-4 text-xs font-black text-slate-300 uppercase tracking-wider">업체명3</th>
-                      <th className="px-6 py-4 text-xs font-black text-slate-300 uppercase tracking-wider">업체명4</th>
+                      <th className="px-6 py-4 text-xs font-black text-slate-300 uppercase tracking-wider text-center">업체명1</th>
+                      <th className="px-6 py-4 text-xs font-black text-slate-300 uppercase tracking-wider text-center">업체명2</th>
+                      <th className="px-6 py-4 text-xs font-black text-slate-300 uppercase tracking-wider text-center">업체명3</th>
+                      <th className="px-6 py-4 text-xs font-black text-slate-300 uppercase tracking-wider text-center">업체명4</th>
+                      {isAdminMode && <th className="px-6 py-4 w-24"></th>}
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-slate-200">
-                    {comparisonRows.map((row) => (
-                      <tr key={row.id} className="hover:bg-slate-50 transition-colors">
+                    {comparisonRows.map((row, index) => (
+                      <tr key={row.id} className="hover:bg-slate-50 transition-colors group">
                         <td className="px-6 py-4 text-sm font-bold text-slate-900 border-r border-slate-100 bg-slate-50/30">
-                          {row.category}
+                          {isAdminMode ? (
+                            <input 
+                              defaultValue={row.category} 
+                              onBlur={(e) => handleMatrixChange(row.id, 'category', e.target.value)}
+                              className="w-full bg-transparent border-none p-0 focus:ring-0 font-bold"
+                            />
+                          ) : row.category}
                         </td>
-                        <td className="px-6 py-4 text-sm text-slate-600 text-center">{row.vendor1 || '-'}</td>
-                        <td className="px-6 py-4 text-sm text-slate-600 text-center">{row.vendor2 || '-'}</td>
-                        <td className="px-6 py-4 text-sm text-slate-600 text-center">{row.vendor3 || '-'}</td>
-                        <td className="px-6 py-4 text-sm text-slate-600 text-center">{row.vendor4 || '-'}</td>
+                        <td className="px-6 py-4 text-sm text-slate-600">
+                          {isAdminMode ? (
+                            <textarea 
+                              defaultValue={row.vendor1} 
+                              onBlur={(e) => handleMatrixChange(row.id, 'vendor1', e.target.value)}
+                              className="w-full bg-transparent border-none p-0 focus:ring-0 text-center resize-none h-10"
+                            />
+                          ) : <div className="text-center">{row.vendor1 || '-'}</div>}
+                        </td>
+                        <td className="px-6 py-4 text-sm text-slate-600">
+                          {isAdminMode ? (
+                            <textarea 
+                              defaultValue={row.vendor2} 
+                              onBlur={(e) => handleMatrixChange(row.id, 'vendor2', e.target.value)}
+                              className="w-full bg-transparent border-none p-0 focus:ring-0 text-center resize-none h-10"
+                            />
+                          ) : <div className="text-center">{row.vendor2 || '-'}</div>}
+                        </td>
+                        <td className="px-6 py-4 text-sm text-slate-600">
+                          {isAdminMode ? (
+                            <textarea 
+                              defaultValue={row.vendor3} 
+                              onBlur={(e) => handleMatrixChange(row.id, 'vendor3', e.target.value)}
+                              className="w-full bg-transparent border-none p-0 focus:ring-0 text-center resize-none h-10"
+                            />
+                          ) : <div className="text-center">{row.vendor3 || '-'}</div>}
+                        </td>
+                        <td className="px-6 py-4 text-sm text-slate-600">
+                          {isAdminMode ? (
+                            <textarea 
+                              defaultValue={row.vendor4} 
+                              onBlur={(e) => handleMatrixChange(row.id, 'vendor4', e.target.value)}
+                              className="w-full bg-transparent border-none p-0 focus:ring-0 text-center resize-none h-10"
+                            />
+                          ) : <div className="text-center">{row.vendor4 || '-'}</div>}
+                        </td>
+                        {isAdminMode && (
+                          <td className="px-6 py-4 text-right">
+                            <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                              {savingMatrixId === row.id && (
+                                <span className="text-[10px] text-emerald-500 font-bold mr-2 animate-pulse whitespace-nowrap">...</span>
+                              )}
+                              <button 
+                                onClick={() => moveComparisonRow(index, 'up')}
+                                disabled={index === 0}
+                                className="p-1 hover:text-indigo-500 disabled:opacity-30"
+                              >
+                                <ChevronUp className="h-3 w-3" />
+                              </button>
+                              <button 
+                                onClick={() => moveComparisonRow(index, 'down')}
+                                disabled={index === comparisonRows.length - 1}
+                                className="p-1 hover:text-indigo-500 disabled:opacity-30"
+                              >
+                                <ChevronDown className="h-3 w-3" />
+                              </button>
+                              <button 
+                                onClick={() => deleteComparisonRow(row.id)}
+                                className="p-1 hover:text-red-500 ml-1"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </button>
+                            </div>
+                          </td>
+                        )}
                       </tr>
                     ))}
                     {comparisonRows.length === 0 && (
                       <tr>
-                        <td colSpan={5} className="px-6 py-20 text-center text-slate-400">
-                           비교 매트릭스 데이터가 없습니다. 업체 상세 페이지에서 구분을 추가해 주세요.
+                        <td colSpan={isAdminMode ? 7 : 5} className="px-6 py-20 text-center text-slate-400">
+                           비교 매트릭스 데이터가 없습니다. 엑셀 업로드 또는 개별 항목을 추가해 주세요.
                         </td>
                       </tr>
                     )}
@@ -1392,7 +1662,7 @@ export default function App() {
                   </div>
                 )}
 
-                {/* Handled Items Comparison Matrix - Collapsible */}
+                {/* Handled Items Section - Collapsible */}
                 <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
                   <div 
                     onClick={() => setIsMatrixExpanded(!isMatrixExpanded)}
@@ -1400,14 +1670,14 @@ export default function App() {
                   >
                     <div className="flex items-center gap-2 text-white">
                       <Table className="h-4 w-4 text-indigo-400" />
-                      <h3 className="text-sm font-black uppercase tracking-widest">취급 품목 비교 (구분)</h3>
+                      <h3 className="text-sm font-black uppercase tracking-widest">취급 품목 (Handled Items)</h3>
                     </div>
                     <div className="flex items-center gap-3">
                       {canManageItems && isMatrixExpanded && (
                         <button 
                           onClick={(e) => {
                             e.stopPropagation();
-                            setIsAddingComparisonRow(true);
+                            setIsAddingHandledItem(true);
                           }}
                           className="p-1 px-3 bg-white/10 hover:bg-white/20 text-white rounded text-[10px] font-bold transition-all flex items-center gap-1"
                         >
@@ -1421,87 +1691,59 @@ export default function App() {
                   
                   {isMatrixExpanded && (
                     <div className="overflow-x-auto">
-                      <table className="w-full text-left border-collapse min-w-[800px]">
+                      <table className="w-full text-left border-collapse min-w-[600px]">
                         <thead className="bg-slate-50 text-slate-500 text-[10px] font-bold uppercase tracking-wider">
                           <tr>
-                            <th className="px-6 py-3 border-b border-slate-200 w-1/4">구분품명</th>
-                            <th className="px-6 py-3 border-b border-slate-200">업체명1</th>
-                            <th className="px-6 py-3 border-b border-slate-200">업체명2</th>
-                            <th className="px-6 py-3 border-b border-slate-200">업체명3</th>
-                            <th className="px-6 py-3 border-b border-slate-200">업체명4</th>
-                            {canManageItems && <th className="px-6 py-3 border-b border-slate-200 w-16"></th>}
+                            <th className="px-6 py-3 border-b border-slate-200 w-1/3">구분품명 (Category)</th>
+                            <th className="px-6 py-3 border-b border-slate-200">상세 내용 (Details)</th>
+                            {canManageItems && <th className="px-6 py-3 border-b border-slate-200 w-24"></th>}
                           </tr>
                         </thead>
                         <tbody className="text-slate-600 text-sm divide-y divide-slate-100">
-                          {comparisonRows.map((row, index) => (
-                            <tr key={row.id} className="hover:bg-slate-50/50 transition-colors group">
+                          {handledItems.map((item, index) => (
+                            <tr key={item.id} className="hover:bg-slate-50/50 transition-colors group">
                               <td className="px-6 py-3 font-bold text-slate-900">
                                 {canManageItems ? (
                                   <input 
-                                    defaultValue={row.category} 
-                                    onChange={(e) => handleMatrixChange(row.id, 'category', e.target.value)}
+                                    defaultValue={item.category} 
+                                    onBlur={(e) => handleHandledItemChange(item.id, 'category', e.target.value)}
                                     className="w-full bg-transparent border-none p-0 focus:ring-0 font-bold"
+                                    placeholder="구분 입력"
                                   />
-                                ) : row.category}
+                                ) : item.category}
                               </td>
                               <td className="px-6 py-3">
                                 {canManageItems ? (
                                   <input 
-                                    defaultValue={row.vendor1} 
-                                    onChange={(e) => handleMatrixChange(row.id, 'vendor1', e.target.value)}
+                                    defaultValue={item.detail} 
+                                    onBlur={(e) => handleHandledItemChange(item.id, 'detail', e.target.value)}
                                     className="w-full bg-transparent border-none p-0 focus:ring-0 text-slate-600"
+                                    placeholder="상세 내용 입력"
                                   />
-                                ) : row.vendor1}
-                              </td>
-                              <td className="px-6 py-3">
-                                {canManageItems ? (
-                                  <input 
-                                    defaultValue={row.vendor2} 
-                                    onChange={(e) => handleMatrixChange(row.id, 'vendor2', e.target.value)}
-                                    className="w-full bg-transparent border-none p-0 focus:ring-0 text-slate-600"
-                                  />
-                                ) : row.vendor2}
-                              </td>
-                              <td className="px-6 py-3">
-                                {canManageItems ? (
-                                  <input 
-                                    defaultValue={row.vendor3} 
-                                    onChange={(e) => handleMatrixChange(row.id, 'vendor3', e.target.value)}
-                                    className="w-full bg-transparent border-none p-0 focus:ring-0 text-slate-600"
-                                  />
-                                ) : row.vendor3}
-                              </td>
-                              <td className="px-6 py-3">
-                                {canManageItems ? (
-                                  <input 
-                                    defaultValue={row.vendor4} 
-                                    onChange={(e) => handleMatrixChange(row.id, 'vendor4', e.target.value)}
-                                    className="w-full bg-transparent border-none p-0 focus:ring-0 text-slate-600"
-                                  />
-                                ) : row.vendor4}
+                                ) : item.detail}
                               </td>
                               {canManageItems && (
                                 <td className="px-6 py-3 text-right">
                                   <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    {savingMatrixId === row.id && (
+                                    {savingHandledId === item.id && (
                                       <span className="text-[10px] text-emerald-500 font-bold mr-2 animate-pulse whitespace-nowrap">저장 중...</span>
                                     )}
                                     <button 
-                                      onClick={() => moveComparisonRow(index, 'up')}
+                                      onClick={() => moveHandledItem(index, 'up')}
                                       disabled={index === 0}
                                       className="p-1 hover:text-indigo-500 disabled:opacity-30"
                                     >
                                       <ChevronUp className="h-3 w-3" />
                                     </button>
                                     <button 
-                                      onClick={() => moveComparisonRow(index, 'down')}
-                                      disabled={index === comparisonRows.length - 1}
+                                      onClick={() => moveHandledItem(index, 'down')}
+                                      disabled={index === handledItems.length - 1}
                                       className="p-1 hover:text-indigo-500 disabled:opacity-30"
                                     >
                                       <ChevronDown className="h-3 w-3" />
                                     </button>
                                     <button 
-                                      onClick={() => deleteComparisonRow(row.id)}
+                                      onClick={() => deleteHandledItem(item.id)}
                                       className="p-1 hover:text-red-500 ml-1"
                                     >
                                       <Trash2 className="h-3 w-3" />
@@ -1511,10 +1753,10 @@ export default function App() {
                               )}
                             </tr>
                           ))}
-                          {comparisonRows.length === 0 && (
+                          {handledItems.length === 0 && (
                             <tr>
-                              <td colSpan={canManageItems ? 6 : 5} className="px-6 py-10 text-center text-slate-400 text-xs italic">
-                                등록된 비교 품목 구분이 없습니다. {canManageItems && "내용을 입력하여 추가해 보세요."}
+                              <td colSpan={canManageItems ? 3 : 2} className="px-6 py-10 text-center text-slate-400 text-xs italic">
+                                등록된 취급 품목 구분이 없습니다. {canManageItems && "내용을 입력하여 추가해 보세요."}
                               </td>
                             </tr>
                           )}
@@ -1908,34 +2150,54 @@ export default function App() {
           </Modal>
         )}
 
-        {isAddingComparisonRow && (
-          <Modal key="modal-add-comparison" title="취급 품목 구분 추가" onClose={() => setIsAddingComparisonRow(false)}>
-            <form onSubmit={handleAddComparisonRow} className="space-y-6">
+        {isAddingHandledItem && (
+          <Modal key="modal-add-handled" title="취급 품목 구분 추가" onClose={() => setIsAddingHandledItem(false)}>
+            <form onSubmit={handleAddHandledItem} className="space-y-6">
               <div className="space-y-2">
                 <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">구분 품명 *</label>
                 <input name="category" required placeholder="예) 강관, 밸브, 피팅 등" className="w-full rounded-2xl border-2 border-slate-100 bg-slate-50 p-4 font-bold text-slate-800 focus:border-indigo-500 focus:bg-white focus:outline-none transition-all" />
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">업체명 1</label>
-                  <input name="vendor1" placeholder="업체명 입력" className="w-full rounded-xl border-2 border-slate-100 bg-slate-50 p-3 text-sm focus:border-indigo-500 focus:bg-white focus:outline-none transition-all" />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">업체명 2</label>
-                  <input name="vendor2" placeholder="업체명 입력" className="w-full rounded-xl border-2 border-slate-100 bg-slate-50 p-3 text-sm focus:border-indigo-500 focus:bg-white focus:outline-none transition-all" />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">업체명 3</label>
-                  <input name="vendor3" placeholder="업체명 입력" className="w-full rounded-xl border-2 border-slate-100 bg-slate-50 p-3 text-sm focus:border-indigo-500 focus:bg-white focus:outline-none transition-all" />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">업체명 4</label>
-                  <input name="vendor4" placeholder="업체명 입력" className="w-full rounded-xl border-2 border-slate-100 bg-slate-50 p-3 text-sm focus:border-indigo-500 focus:bg-white focus:outline-none transition-all" />
-                </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">상세 내용</label>
+                <textarea name="detail" placeholder="해당 구분의 상세 내용 또는 취급 품목 사양" rows={3} className="w-full rounded-2xl border-2 border-slate-100 bg-slate-50 p-4 font-medium text-slate-800 focus:border-indigo-500 focus:bg-white focus:outline-none transition-all"></textarea>
               </div>
               <div className="pt-4">
                 <button type="submit" className="w-full rounded-3xl bg-indigo-600 py-4 text-white font-black hover:bg-slate-900 transition-all shadow-xl shadow-indigo-100">
                   구분 항목 저장
+                </button>
+              </div>
+            </form>
+          </Modal>
+        )}
+
+        {isAddingComparisonRow && (
+          <Modal key="modal-add-comparison" title="비교 매트릭스 항목 추가" onClose={() => setIsAddingComparisonRow(false)}>
+            <form onSubmit={handleAddComparisonRow} className="space-y-6">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">구분품명 *</label>
+                <input name="category" required placeholder="예) 강관, 밸브, 피팅 등" className="w-full rounded-2xl border-2 border-slate-100 bg-slate-50 p-4 font-bold text-slate-800 focus:border-indigo-500 focus:bg-white focus:outline-none transition-all" />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">업체명1</label>
+                  <textarea name="vendor1" placeholder="업체 정보 입력" rows={2} className="w-full rounded-xl border-2 border-slate-100 bg-slate-50 p-3 text-sm focus:border-indigo-500 focus:bg-white focus:outline-none transition-all" />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">업체명2</label>
+                  <textarea name="vendor2" placeholder="업체 정보 입력" rows={2} className="w-full rounded-xl border-2 border-slate-100 bg-slate-50 p-3 text-sm focus:border-indigo-500 focus:bg-white focus:outline-none transition-all" />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">업체명3</label>
+                  <textarea name="vendor3" placeholder="업체 정보 입력" rows={2} className="w-full rounded-xl border-2 border-slate-100 bg-slate-50 p-3 text-sm focus:border-indigo-500 focus:bg-white focus:outline-none transition-all" />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">업체명4</label>
+                  <textarea name="vendor4" placeholder="업체 정보 입력" rows={2} className="w-full rounded-xl border-2 border-slate-100 bg-slate-50 p-3 text-sm focus:border-indigo-500 focus:bg-white focus:outline-none transition-all" />
+                </div>
+              </div>
+              <div className="pt-4">
+                <button type="submit" className="w-full rounded-3xl bg-indigo-600 py-4 text-white font-black hover:bg-slate-900 transition-all shadow-xl shadow-indigo-100">
+                  매트릭스 항목 등록하기
                 </button>
               </div>
             </form>

@@ -23,16 +23,13 @@
       },
       "required": ["name", "email", "password"]
     },
-    "ComparisonRow": {
-      "title": "Comparison Row",
-      "description": "A row in the comparison matrix for handled items.",
+    "HandledItem": {
+      "title": "Handled Item",
+      "description": "An item or category handled by a specific vendor.",
       "type": "object",
       "properties": {
-        "category": { "type": "string", "description": "Item category name" },
-        "vendor1": { "type": "string", "description": "Vendor 1 info" },
-        "vendor2": { "type": "string", "description": "Vendor 2 info" },
-        "vendor3": { "type": "string", "description": "Vendor 3 info" },
-        "vendor4": { "type": "string", "description": "Vendor 4 info" },
+        "category": { "type": "string", "description": "Category or Item name" },
+        "detail": { "type": "string", "description": "Specific details or capabilities" },
         "order": { "type": "number", "description": "Display order" }
       },
       "required": ["category"]
@@ -46,6 +43,9 @@
         "itemName": { "type": "string", "description": "Name of the item" },
         "spec": { "type": "string", "description": "Specification" },
         "unit": { "type": "string", "description": "Unit (e.g., kg, pcs)" },
+        "itemCode": { "type": "string", "description": "Item code" },
+        "mpn": { "type": "string", "description": "Manufacturer part number" },
+        "supplierItemCode": { "type": "string", "description": "Supplier SKU" },
         "costPrice": { "type": "number", "description": "Negotiated cost price (협가)" },
         "negoRate": { "type": "number", "description": "Negotiation rate percentage (네고율)" },
         "unitPrice": { "type": "number", "description": "Final unit price (단가)" },
@@ -54,6 +54,20 @@
         "order": { "type": "number", "description": "Display order" }
       },
       "required": ["vendorId", "itemName", "unitPrice"]
+    },
+    "ComparisonRow": {
+      "title": "Comparison Row",
+      "description": "A row in the comparison matrix for handled items.",
+      "type": "object",
+      "properties": {
+        "category": { "type": "string", "description": "Item category name" },
+        "vendor1": { "type": "string", "description": "Vendor 1 info" },
+        "vendor2": { "type": "string", "description": "Vendor 2 info" },
+        "vendor3": { "type": "string", "description": "Vendor 3 info" },
+        "vendor4": { "type": "string", "description": "Vendor 4 info" },
+        "order": { "type": "number", "description": "Display order" }
+      },
+      "required": ["category"]
     }
   },
   "firestore": {
@@ -65,9 +79,13 @@
       "schema": "PriceTableItem",
       "description": "Unit price items specific to a vendor."
     },
+    "/vendors/{vendorId}/handled_items/{itemId}": {
+      "schema": "HandledItem",
+      "description": "Handled items specific to a vendor."
+    },
     "/comparison_matrix/{rowId}": {
       "schema": "ComparisonRow",
-      "description": "Comparison matrix for handled items."
+      "description": "Comparison matrix data."
     }
   }
 }

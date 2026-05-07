@@ -56,6 +56,9 @@ service cloud.firestore {
               && (data.negoRate == null || data.negoRate is number)
               && (data.spec == null || data.spec is string)
               && (data.unit == null || data.unit is string)
+              && (data.itemCode == null || data.itemCode is string)
+              && (data.mpn == null || data.mpn is string)
+              && (data.supplierItemCode == null || data.supplierItemCode is string)
               && (data.remarks == null || data.remarks is string)
               && (data.maker == null || data.maker is string)
               && (data.isConfirmed == null || data.isConfirmed is bool)
@@ -65,6 +68,18 @@ service cloud.firestore {
         allow read: if true; 
         allow create: if isValidPrice(incoming());
         allow update: if isValidPrice(incoming());
+        allow delete: if true;
+      }
+
+      match /handled_items/{itemId} {
+        function isValidHandledItem(data) {
+          return data.category is string && data.category.size() > 0 && data.category.size() <= 200
+              && (data.detail == null || data.detail is string)
+              && (data.order == null || data.order is number);
+        }
+        allow read: if true;
+        allow create: if isValidHandledItem(incoming());
+        allow update: if isValidHandledItem(incoming());
         allow delete: if true;
       }
     }
@@ -79,8 +94,8 @@ service cloud.firestore {
             && (data.order == null || data.order is number);
       }
       allow read: if true;
-      allow create: if true;
-      allow update: if true;
+      allow create: if isValidComparison(incoming());
+      allow update: if isValidComparison(incoming());
       allow delete: if true;
     }
   }

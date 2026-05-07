@@ -17,6 +17,13 @@ export interface Vendor {
   updatedAt?: any;
 }
 
+export interface HandledItem {
+  id: string;
+  category: string;
+  detail: string;
+  order: number;
+}
+
 export interface ComparisonRow {
   id: string;
   category: string;
@@ -33,6 +40,9 @@ export interface PriceItem {
   itemName: string;
   spec?: string;
   unit?: string;
+  itemCode?: string;
+  mpn?: string;
+  supplierItemCode?: string;
   costPrice: number; // 협가
   negoRate: number;  // 네고율 (%)
   unitPrice: number; // 단가 (최종 계산가)
