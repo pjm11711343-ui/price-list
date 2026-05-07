@@ -37,7 +37,8 @@ service cloud.firestore {
           && (data.priceTableFileType == null || data.priceTableFileType is string)
           && (data.priceTableFileName == null || data.priceTableFileName is string)
           && (data.useRounding == null || data.useRounding is bool)
-          && (data.masterCustomFlag == null || data.masterCustomFlag is bool);
+          && (data.masterCustomFlag == null || data.masterCustomFlag is bool)
+          && (data.handlingDetails == null || data.handlingDetails is map);
     }
 
     match /vendors/{vendorId} {
@@ -45,7 +46,7 @@ service cloud.firestore {
       allow read: if true; // Publicly listable for now to select vendor
       allow create: if isValidId(vendorId) && isValidVendor(incoming());
       allow update: if isValidVendor(incoming()) && (
-        incoming().diff(existing()).affectedKeys().hasOnly(['name', 'phone', 'fax', 'representative', 'businessNumber', 'email', 'password', 'updatedAt', 'notes', 'priceTableUrl', 'priceTableFileType', 'priceTableFileName', 'useRounding', 'masterCustomFlag'])
+        incoming().diff(existing()).affectedKeys().hasOnly(['name', 'phone', 'fax', 'representative', 'businessNumber', 'email', 'password', 'updatedAt', 'notes', 'priceTableUrl', 'priceTableFileType', 'priceTableFileName', 'useRounding', 'masterCustomFlag', 'handlingDetails'])
       );
 
       match /prices/{priceId} {
@@ -56,9 +57,6 @@ service cloud.firestore {
               && (data.negoRate == null || data.negoRate is number)
               && (data.spec == null || data.spec is string)
               && (data.unit == null || data.unit is string)
-              && (data.itemCode == null || data.itemCode is string)
-              && (data.mpn == null || data.mpn is string)
-              && (data.supplierItemCode == null || data.supplierItemCode is string)
               && (data.remarks == null || data.remarks is string)
               && (data.maker == null || data.maker is string)
               && (data.isConfirmed == null || data.isConfirmed is bool)
@@ -68,18 +66,6 @@ service cloud.firestore {
         allow read: if true; 
         allow create: if isValidPrice(incoming());
         allow update: if isValidPrice(incoming());
-        allow delete: if true;
-      }
-
-      match /handled_items/{itemId} {
-        function isValidHandledItem(data) {
-          return data.category is string && data.category.size() > 0 && data.category.size() <= 200
-              && (data.detail == null || data.detail is string)
-              && (data.order == null || data.order is number);
-        }
-        allow read: if true;
-        allow create: if isValidHandledItem(incoming());
-        allow update: if isValidHandledItem(incoming());
         allow delete: if true;
       }
     }
@@ -94,8 +80,8 @@ service cloud.firestore {
             && (data.order == null || data.order is number);
       }
       allow read: if true;
-      allow create: if isValidComparison(incoming());
-      allow update: if isValidComparison(incoming());
+      allow create: if true;
+      allow update: if true;
       allow delete: if true;
     }
   }

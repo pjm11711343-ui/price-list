@@ -13,15 +13,9 @@ export interface Vendor {
   notes?: string;
   useRounding?: boolean;
   masterCustomFlag?: boolean;
+  handlingDetails?: Record<string, string>;
   createdAt?: any;
   updatedAt?: any;
-}
-
-export interface HandledItem {
-  id: string;
-  category: string;
-  detail: string;
-  order: number;
 }
 
 export interface ComparisonRow {
@@ -40,9 +34,6 @@ export interface PriceItem {
   itemName: string;
   spec?: string;
   unit?: string;
-  itemCode?: string;
-  mpn?: string;
-  supplierItemCode?: string;
   costPrice: number; // 협가
   negoRate: number;  // 네고율 (%)
   unitPrice: number; // 단가 (최종 계산가)

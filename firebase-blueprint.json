@@ -18,42 +18,11 @@
         "notes": { "type": "string", "description": "Additional notes about the vendor" },
         "useRounding": { "type": "boolean", "description": "Enable 10-won rounding (5 or less down, more than 5 up)" },
         "masterCustomFlag": { "type": "boolean", "description": "Custom flag in master settings" },
+        "handlingDetails": { "type": "object", "description": "Map of category IDs to handling detail values" },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["name", "email", "password"]
-    },
-    "HandledItem": {
-      "title": "Handled Item",
-      "description": "An item or category handled by a specific vendor.",
-      "type": "object",
-      "properties": {
-        "category": { "type": "string", "description": "Category or Item name" },
-        "detail": { "type": "string", "description": "Specific details or capabilities" },
-        "order": { "type": "number", "description": "Display order" }
-      },
-      "required": ["category"]
-    },
-    "PriceTableItem": {
-      "title": "Price Table Item",
-      "description": "A single entry in a vendor's unit price table.",
-      "type": "object",
-      "properties": {
-        "vendorId": { "type": "string", "description": "Reference to the vendor" },
-        "itemName": { "type": "string", "description": "Name of the item" },
-        "spec": { "type": "string", "description": "Specification" },
-        "unit": { "type": "string", "description": "Unit (e.g., kg, pcs)" },
-        "itemCode": { "type": "string", "description": "Item code" },
-        "mpn": { "type": "string", "description": "Manufacturer part number" },
-        "supplierItemCode": { "type": "string", "description": "Supplier SKU" },
-        "costPrice": { "type": "number", "description": "Negotiated cost price (협가)" },
-        "negoRate": { "type": "number", "description": "Negotiation rate percentage (네고율)" },
-        "unitPrice": { "type": "number", "description": "Final unit price (단가)" },
-        "remarks": { "type": "string", "description": "Additional notes" },
-        "isConfirmed": { "type": "boolean", "description": "Confirmation flag for the item" },
-        "order": { "type": "number", "description": "Display order" }
-      },
-      "required": ["vendorId", "itemName", "unitPrice"]
     },
     "ComparisonRow": {
       "title": "Comparison Row",
@@ -68,6 +37,24 @@
         "order": { "type": "number", "description": "Display order" }
       },
       "required": ["category"]
+    },
+    "PriceTableItem": {
+      "title": "Price Table Item",
+      "description": "A single entry in a vendor's unit price table.",
+      "type": "object",
+      "properties": {
+        "vendorId": { "type": "string", "description": "Reference to the vendor" },
+        "itemName": { "type": "string", "description": "Name of the item" },
+        "spec": { "type": "string", "description": "Specification" },
+        "unit": { "type": "string", "description": "Unit (e.g., kg, pcs)" },
+        "costPrice": { "type": "number", "description": "Negotiated cost price (협가)" },
+        "negoRate": { "type": "number", "description": "Negotiation rate percentage (네고율)" },
+        "unitPrice": { "type": "number", "description": "Final unit price (단가)" },
+        "remarks": { "type": "string", "description": "Additional notes" },
+        "isConfirmed": { "type": "boolean", "description": "Confirmation flag for the item" },
+        "order": { "type": "number", "description": "Display order" }
+      },
+      "required": ["vendorId", "itemName", "unitPrice"]
     }
   },
   "firestore": {
@@ -79,13 +66,9 @@
       "schema": "PriceTableItem",
       "description": "Unit price items specific to a vendor."
     },
-    "/vendors/{vendorId}/handled_items/{itemId}": {
-      "schema": "HandledItem",
-      "description": "Handled items specific to a vendor."
-    },
     "/comparison_matrix/{rowId}": {
       "schema": "ComparisonRow",
-      "description": "Comparison matrix data."
+      "description": "Comparison matrix for handled items."
     }
   }
 }
