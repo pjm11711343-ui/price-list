@@ -1,74 +1,44 @@
 {
+  "firestore": {
+    "vendors": {
+      "path": "vendors",
+      "description": "Master list of vendors/suppliers",
+      "subcollections": {
+        "handling_items": {
+          "schema": "ComparisonRow",
+          "description": "Individual comparison items for this vendor"
+        }
+      }
+    }
+  },
   "entities": {
     "Vendor": {
       "title": "Vendor",
-      "description": "Information about a business vendor.",
+      "description": "A supplier or manufacturing company",
       "type": "object",
       "properties": {
-        "name": { "type": "string", "description": "Vendor name" },
-        "phone": { "type": "string", "description": "Company phone number" },
-        "fax": { "type": "string", "description": "Company fax number" },
-        "representative": { "type": "string", "description": "Representative name" },
-        "businessNumber": { "type": "string", "description": "Business registration number" },
-        "email": { "type": "string", "description": "Contact email" },
-        "password": { "type": "string", "description": "Access password for this vendor's price table" },
-        "priceTableUrl": { "type": "string", "description": "URL to the original price table file" },
-        "priceTableFileType": { "type": "string", "description": "Type of the price table file" },
-        "priceTableFileName": { "type": "string", "description": "Name of the price table file" },
-        "notes": { "type": "string", "description": "Additional notes about the vendor" },
-        "useRounding": { "type": "boolean", "description": "Enable 10-won rounding (5 or less down, more than 5 up)" },
-        "masterCustomFlag": { "type": "boolean", "description": "Custom flag in master settings" },
-        "handlingDetails": { "type": "object", "description": "Map of category IDs to handling detail values" },
-        "createdAt": { "type": "string", "format": "date-time" },
-        "updatedAt": { "type": "string", "format": "date-time" }
+        "name": { "type": "string" },
+        "representative": { "type": "string" },
+        "businessNumber": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "password": { "type": "string" },
+        "handlingDetails": { "type": "object", "description": "Legacy field, migrated to subcollection" }
       },
-      "required": ["name", "email", "password"]
+      "required": ["name", "email"]
     },
     "ComparisonRow": {
       "title": "Comparison Row",
-      "description": "A row in the comparison matrix for handled items.",
+      "description": "A category row in the comparison matrix",
       "type": "object",
       "properties": {
-        "category": { "type": "string", "description": "Item category name" },
-        "vendor1": { "type": "string", "description": "Vendor 1 info" },
-        "vendor2": { "type": "string", "description": "Vendor 2 info" },
-        "vendor3": { "type": "string", "description": "Vendor 3 info" },
-        "vendor4": { "type": "string", "description": "Vendor 4 info" },
-        "order": { "type": "number", "description": "Display order" }
+        "category": { "type": "string" },
+        "vendor1": { "type": "string" },
+        "vendor2": { "type": "string" },
+        "vendor3": { "type": "string" },
+        "vendor4": { "type": "string" },
+        "order": { "type": "number" }
       },
       "required": ["category"]
-    },
-    "PriceTableItem": {
-      "title": "Price Table Item",
-      "description": "A single entry in a vendor's unit price table.",
-      "type": "object",
-      "properties": {
-        "vendorId": { "type": "string", "description": "Reference to the vendor" },
-        "itemName": { "type": "string", "description": "Name of the item" },
-        "spec": { "type": "string", "description": "Specification" },
-        "unit": { "type": "string", "description": "Unit (e.g., kg, pcs)" },
-        "costPrice": { "type": "number", "description": "Negotiated cost price (협가)" },
-        "negoRate": { "type": "number", "description": "Negotiation rate percentage (네고율)" },
-        "unitPrice": { "type": "number", "description": "Final unit price (단가)" },
-        "remarks": { "type": "string", "description": "Additional notes" },
-        "isConfirmed": { "type": "boolean", "description": "Confirmation flag for the item" },
-        "order": { "type": "number", "description": "Display order" }
-      },
-      "required": ["vendorId", "itemName", "unitPrice"]
-    }
-  },
-  "firestore": {
-    "/vendors/{vendorId}": {
-      "schema": "Vendor",
-      "description": "Collection of vendors."
-    },
-    "/vendors/{vendorId}/prices/{priceId}": {
-      "schema": "PriceTableItem",
-      "description": "Unit price items specific to a vendor."
-    },
-    "/comparison_matrix/{rowId}": {
-      "schema": "ComparisonRow",
-      "description": "Comparison matrix for handled items."
     }
   }
 }

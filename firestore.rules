@@ -68,21 +68,19 @@ service cloud.firestore {
         allow update: if isValidPrice(incoming());
         allow delete: if true;
       }
-    }
 
-    match /comparison_matrix/{rowId} {
-      function isValidComparison(data) {
-        return data.category is string && data.category.size() > 0 && data.category.size() <= 200
-            && (data.vendor1 == null || data.vendor1 is string)
-            && (data.vendor2 == null || data.vendor2 is string)
-            && (data.vendor3 == null || data.vendor3 is string)
-            && (data.vendor4 == null || data.vendor4 is string)
-            && (data.order == null || data.order is number);
+      match /handling_items/{itemId} {
+        function isValidHandlingItem(data) {
+          return data.category is string && data.category.size() > 0 && data.category.size() <= 200
+              && (data.vendor1 == null || data.vendor1 is string)
+              && (data.vendor2 == null || data.vendor2 is string)
+              && (data.vendor3 == null || data.vendor3 is string)
+              && (data.vendor4 == null || data.vendor4 is string)
+              && (data.order == null || data.order is number);
+        }
+        allow read: if true;
+        allow write: if true; // Keeping it simple for development, restrictive in production
       }
-      allow read: if true;
-      allow create: if true;
-      allow update: if true;
-      allow delete: if true;
     }
   }
 }

@@ -443,13 +443,19 @@ export default function App() {
 
   // Fetch Comparison Rows
   useEffect(() => {
-    const q = query(collection(db, 'comparison_matrix'), orderBy('order', 'asc'));
+    if (!selectedVendor) {
+      setComparisonRows([]);
+      return;
+    }
+    const q = query(collection(db, 'vendors', selectedVendor.id, 'handling_items'), orderBy('order', 'asc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ComparisonRow));
       setComparisonRows(data);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, `vendors/${selectedVendor.id}/handling_items`);
     });
     return unsubscribe;
-  }, []);
+  }, [selectedVendor?.id]);
 
   // Fetch Vendors
   useEffect(() => {
@@ -707,8 +713,8 @@ export default function App() {
 
   const verifyPassword = (e: React.FormEvent) => {
     e.preventDefault();
-    if (selectedVendor && passwordInput === selectedVendor.password) {
-      setIsVerified(selectedVendor.id);
+    if (isAdminMode || (selectedVendor && passwordInput === selectedVendor.password)) {
+      setIsVerified(selectedVendor?.id || null);
     } else {
       alert('비밀번호가 일치하지 않습니다.');
     }
@@ -716,49 +722,36 @@ export default function App() {
 
   const handleAddComparisonRow = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (!selectedVendor) return;
     const formData = new FormData(e.currentTarget);
     const newRow = {
       category: formData.get('category') as string,
-      vendor1: formData.get('vendor1') as string || '',
-      vendor2: formData.get('vendor2') as string || '',
-      vendor3: formData.get('vendor3') as string || '',
-      vendor4: formData.get('vendor4') as string || '',
+      vendor1: '',
+      vendor2: '',
+      vendor3: '',
+      vendor4: '',
       order: comparisonRows.length,
     };
 
     try {
-      await addDoc(collection(db, 'comparison_matrix'), newRow);
+      await addDoc(collection(db, 'vendors', selectedVendor.id, 'handling_items'), newRow);
       setIsAddingComparisonRow(false);
     } catch (error) {
-      console.error("Error adding comparison row:", error);
-    }
-  };
-
-  const initializeComparisonMatrix = async () => {
-    if (!isAdminMode) return;
-    if (window.confirm('모든 비교 데이터를 초기화(삭제)하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) {
-      try {
-        const querySnapshot = await getDocs(collection(db, 'comparison_matrix'));
-        const deletePromises = querySnapshot.docs.map(d => deleteDoc(doc(db, 'comparison_matrix', d.id)));
-        await Promise.all(deletePromises);
-        alert('초기화가 완료되었습니다.');
-      } catch (error) {
-        console.error("Error initializing matrix:", error);
-      }
+      handleFirestoreError(error, OperationType.WRITE, `vendors/${selectedVendor.id}/handling_items`);
     }
   };
 
   const updateComparisonRow = async (id: string, field: string, value: string) => {
+    if (!selectedVendor) return;
     try {
       setSavingMatrixId(id);
-      await updateDoc(doc(db, 'comparison_matrix', id), {
+      await updateDoc(doc(db, 'vendors', selectedVendor.id, 'handling_items', id), {
         [field]: value,
         updatedAt: serverTimestamp()
       });
-      // Keeping the success indicator for a bit
       setTimeout(() => setSavingMatrixId(null), 1500);
     } catch (error) {
-      console.error("Error updating comparison row:", error);
+      handleFirestoreError(error, OperationType.UPDATE, `vendors/${selectedVendor.id}/handling_items/${id}`);
       setSavingMatrixId(null);
     }
   };
@@ -788,6 +781,7 @@ export default function App() {
   };
 
   const moveComparisonRow = async (rowIndex: number, direction: 'up' | 'down') => {
+    if (!selectedVendor) return;
     const newIndex = direction === 'up' ? rowIndex - 1 : rowIndex + 1;
     if (newIndex < 0 || newIndex >= comparisonRows.length) return;
 
@@ -795,17 +789,18 @@ export default function App() {
     const row2 = comparisonRows[newIndex];
 
     try {
-      await updateDoc(doc(db, 'comparison_matrix', row1.id), { order: newIndex });
-      await updateDoc(doc(db, 'comparison_matrix', row2.id), { order: rowIndex });
+      await updateDoc(doc(db, 'vendors', selectedVendor.id, 'handling_items', row1.id), { order: newIndex });
+      await updateDoc(doc(db, 'vendors', selectedVendor.id, 'handling_items', row2.id), { order: rowIndex });
     } catch (error) {
       console.error("Error moving row:", error);
     }
   };
 
   const deleteComparisonRow = async (id: string) => {
+    if (!selectedVendor) return;
     if (window.confirm('항목을 삭제하시겠습니까?')) {
       try {
-        await deleteDoc(doc(db, 'comparison_matrix', id));
+        await deleteDoc(doc(db, 'vendors', selectedVendor.id, 'handling_items', id));
       } catch (error) {
         console.error("Error deleting comparison row:", error);
       }
@@ -1183,8 +1178,8 @@ export default function App() {
             <header className="px-8 py-6 border-b border-slate-200 shrink-0">
               <div className="flex items-center justify-between">
                 <div>
-                  <h1 className="text-2xl font-black text-slate-900 leading-tight">Vendor Handling Matrix</h1>
-                  <p className="text-xs text-slate-500">업체별 취급 품목 및 단가 통합 비교</p>
+                  <h1 className="text-2xl font-black text-slate-900 leading-tight">업체 취급 품목 (Integrated)</h1>
+                  <p className="text-xs text-slate-500">업체별 취급 품목 통합 현황</p>
                 </div>
                 <button 
                   onClick={() => setViewMode('detail')}
@@ -1199,24 +1194,24 @@ export default function App() {
                         <table className="min-w-full divide-y divide-slate-200">
                           <thead className="bg-slate-900">
                             <tr>
-                              <th className="px-6 py-4 text-xs font-black text-white uppercase tracking-wider text-left border-r border-slate-800 w-[300px]">
+                              <th className="px-6 py-4 text-xs font-black text-white uppercase tracking-wider text-left border-r border-slate-800 w-[240px] sticky left-0 bg-slate-900 z-10">
                                 구분 품명 (Category)
                               </th>
-                              <th className="px-6 py-4 text-xs font-black text-slate-300 uppercase tracking-wider">업체명1</th>
-                              <th className="px-6 py-4 text-xs font-black text-slate-300 uppercase tracking-wider">업체명2</th>
-                              <th className="px-6 py-4 text-xs font-black text-slate-300 uppercase tracking-wider">업체명3</th>
-                              <th className="px-6 py-4 text-xs font-black text-slate-300 uppercase tracking-wider">업체명4</th>
+                              <th className="px-6 py-4 text-xs font-black text-slate-300 uppercase tracking-wider text-center border-r border-slate-800">업체명1</th>
+                              <th className="px-6 py-4 text-xs font-black text-slate-300 uppercase tracking-wider text-center border-r border-slate-800">업체명2</th>
+                              <th className="px-6 py-4 text-xs font-black text-slate-300 uppercase tracking-wider text-center border-r border-slate-800">업체명3</th>
+                              <th className="px-6 py-4 text-xs font-black text-slate-300 uppercase tracking-wider text-center">업체명4</th>
                             </tr>
                           </thead>
                           <tbody className="bg-white divide-y divide-slate-200">
                             {comparisonRows.map((row) => (
                               <tr key={row.id} className="hover:bg-slate-50 transition-colors">
-                                <td className="px-6 py-4 text-sm font-bold text-slate-900 border-r border-slate-100 bg-slate-50/30">
+                                <td className="px-6 py-4 text-sm font-bold text-slate-900 border-r border-slate-100 bg-slate-50/30 sticky left-0 z-10 backdrop-blur-sm">
                                   {row.category}
                                 </td>
-                                <td className="px-6 py-4 text-sm text-slate-600 text-center">{row.vendor1 || '-'}</td>
-                                <td className="px-6 py-4 text-sm text-slate-600 text-center">{row.vendor2 || '-'}</td>
-                                <td className="px-6 py-4 text-sm text-slate-600 text-center">{row.vendor3 || '-'}</td>
+                                <td className="px-6 py-4 text-sm text-slate-600 text-center border-r border-slate-100">{row.vendor1 || '-'}</td>
+                                <td className="px-6 py-4 text-sm text-slate-600 text-center border-r border-slate-100">{row.vendor2 || '-'}</td>
+                                <td className="px-6 py-4 text-sm text-slate-600 text-center border-r border-slate-100">{row.vendor3 || '-'}</td>
                                 <td className="px-6 py-4 text-sm text-slate-600 text-center">{row.vendor4 || '-'}</td>
                               </tr>
                             ))}
@@ -1285,7 +1280,7 @@ export default function App() {
                   />
                   <button 
                     onClick={() => fileInputRef.current?.click()}
-                    disabled={isVerified !== selectedVendor.id}
+                    disabled={isVerified !== selectedVendor.id && !isAdminMode}
                     className="px-4 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50 disabled:opacity-50 transition-colors flex items-center gap-2 shadow-sm"
                   >
                     <Upload className="h-4 w-4" />
@@ -1309,7 +1304,7 @@ export default function App() {
                   )}
                   <button 
                     onClick={() => setIsAddingItem(true)}
-                    disabled={isVerified !== selectedVendor.id}
+                    disabled={isVerified !== selectedVendor.id && !isAdminMode}
                     className="px-6 py-2 bg-indigo-600 text-white rounded-lg text-sm font-bold hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md shadow-indigo-100"
                   >
                     단가 추가/수정
@@ -1424,21 +1419,9 @@ export default function App() {
                   >
                     <div className="flex items-center gap-2 text-white">
                       <Table className="h-4 w-4 text-indigo-400" />
-                      <h3 className="text-sm font-black uppercase tracking-widest">취급 품목 비교 (구분)</h3>
+                      <h3 className="text-sm font-black uppercase tracking-widest">업체 취급 품목</h3>
                     </div>
                     <div className="flex items-center gap-3">
-                      {isAdminMode && isMatrixExpanded && (
-                        <button 
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            initializeComparisonMatrix();
-                          }}
-                          className="p-1 px-3 bg-red-500/20 hover:bg-red-500/30 text-red-200 rounded text-[10px] font-bold transition-all flex items-center gap-1"
-                        >
-                          <Trash2 className="h-3 w-3" />
-                          전체 초기화
-                        </button>
-                      )}
                       {canManageItems && isMatrixExpanded && (
                         <button 
                           onClick={(e) => {
@@ -1457,10 +1440,10 @@ export default function App() {
                   
                   {isMatrixExpanded && (
                     <div className="overflow-x-auto">
-                      <table className="w-full text-left border-collapse min-w-[800px]">
+                      <table className="w-full text-left border-collapse min-w-[1000px]">
                         <thead className="bg-slate-50 text-slate-500 text-[10px] font-bold uppercase tracking-wider">
                           <tr>
-                            <th className="px-6 py-3 border-b border-slate-200 w-1/4">구분품명</th>
+                            <th className="px-6 py-3 border-b border-slate-200 w-[200px]">구분품명</th>
                             <th className="px-6 py-3 border-b border-slate-200">업체명1</th>
                             <th className="px-6 py-3 border-b border-slate-200">업체명2</th>
                             <th className="px-6 py-3 border-b border-slate-200">업체명3</th>
@@ -1472,7 +1455,7 @@ export default function App() {
                           {comparisonRows.map((row, index) => (
                             <tr key={row.id} className="hover:bg-slate-50/50 transition-colors group">
                               <td className="px-6 py-3 font-bold text-slate-900 border-r border-slate-100">
-                                {isAdminMode ? (
+                                {canManageItems ? (
                                   <input 
                                     defaultValue={row.category} 
                                     onChange={(e) => handleMatrixChange(row.id, 'category', e.target.value)}
@@ -1480,7 +1463,7 @@ export default function App() {
                                   />
                                 ) : row.category}
                               </td>
-                              <td className="px-6 py-3">
+                              <td className="px-6 py-3 border-r border-slate-50">
                                 {canManageItems ? (
                                   <input 
                                     defaultValue={row.vendor1} 
@@ -1489,7 +1472,7 @@ export default function App() {
                                   />
                                 ) : row.vendor1}
                               </td>
-                              <td className="px-6 py-3">
+                              <td className="px-6 py-3 border-r border-slate-50">
                                 {canManageItems ? (
                                   <input 
                                     defaultValue={row.vendor2} 
@@ -1498,7 +1481,7 @@ export default function App() {
                                   />
                                 ) : row.vendor2}
                               </td>
-                              <td className="px-6 py-3">
+                              <td className="px-6 py-3 border-r border-slate-50">
                                 {canManageItems ? (
                                   <input 
                                     defaultValue={row.vendor3} 
@@ -1783,7 +1766,7 @@ export default function App() {
 
                 {/* Password Overlay */}
                 <AnimatePresence>
-                  {isVerified !== selectedVendor.id && (
+                  {isVerified !== selectedVendor.id && !isAdminMode && (
                     <motion.div 
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
@@ -1951,26 +1934,6 @@ export default function App() {
                 <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">구분 품명 *</label>
                 <input name="category" required placeholder="예) 강관, 밸브, 피팅 등" className="w-full rounded-2xl border-2 border-slate-100 bg-slate-50 p-4 font-bold text-slate-800 focus:border-indigo-500 focus:bg-white focus:outline-none transition-all" />
               </div>
-              
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black tracking-widest text-slate-400">업체명1</label>
-                  <input name="vendor1" placeholder="내용 입력" className="w-full rounded-xl border-2 border-slate-100 bg-slate-50 p-3 text-sm focus:border-indigo-500 focus:outline-none" />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black tracking-widest text-slate-400">업체명2</label>
-                  <input name="vendor2" placeholder="내용 입력" className="w-full rounded-xl border-2 border-slate-100 bg-slate-50 p-3 text-sm focus:border-indigo-500 focus:outline-none" />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black tracking-widest text-slate-400">업체명3</label>
-                  <input name="vendor3" placeholder="내용 입력" className="w-full rounded-xl border-2 border-slate-100 bg-slate-50 p-3 text-sm focus:border-indigo-500 focus:outline-none" />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black tracking-widest text-slate-400">업체명4</label>
-                  <input name="vendor4" placeholder="내용 입력" className="w-full rounded-xl border-2 border-slate-100 bg-slate-50 p-3 text-sm focus:border-indigo-500 focus:outline-none" />
-                </div>
-              </div>
-
               <div className="pt-4">
                 <button type="submit" className="w-full rounded-3xl bg-indigo-600 py-4 text-white font-black hover:bg-slate-900 transition-all shadow-xl shadow-indigo-100">
                   구분 항목 저장
