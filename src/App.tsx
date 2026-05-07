@@ -1077,7 +1077,7 @@ export default function App() {
 
           <div className="mt-2">
             <AnimatePresence mode="popLayout">
-              {sortedVendors.map((vendor) => (
+              {sortedVendors.map((vendor, index) => (
                 <motion.div
                   layout
                   key={vendor.id}
@@ -1097,7 +1097,10 @@ export default function App() {
                     <span className={`w-2 h-2 rounded-full mr-3 ${
                       selectedVendor?.id === vendor.id ? 'bg-indigo-500' : 'bg-slate-600'
                     }`}></span>
-                    <span className="truncate">{vendor.name}</span>
+                    <span className="truncate text-[12px] font-medium">
+                      <span className="text-indigo-400 font-mono mr-1.5 text-[10px] opacity-70 group-hover:opacity-100">{index + 1}.</span>
+                      {vendor.name}
+                    </span>
                   </button>
                   <div className="flex items-center gap-1 shrink-0 relative z-10">
                     <button 
@@ -2206,7 +2209,7 @@ export default function App() {
                 <h3 className="text-xl font-bold text-slate-800 mb-2">업체 대량 등록</h3>
                 <p className="text-slate-500 text-sm">
                   엑셀 파일을 업로드하여 여러 업체를 한 번에 등록할 수 있습니다.<br/>
-                  (컬럼명: 업체명, 대표자, 이메일, 전화번호, 팩스번호, 사업자번호, 비밀번호, 취급품목)
+                  (최대 300개 등록 가능, 컬럼명: 업체명, 대표자, 이메일, 전화번호, 팩스번호, 사업자번호, 비밀번호, 취급품목)
                 </p>
               </div>
 
