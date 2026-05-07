@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import * as XLSX from 'xlsx';
+import { QRCodeCanvas } from 'qrcode.react';
 import { 
   collection, 
   query, 
@@ -1320,22 +1321,32 @@ export default function App() {
                   </p>
                   <p className="text-sm font-semibold text-indigo-600 truncate">{selectedVendor.email || '-'}</p>
                 </div>
-                {isAdminMode && (
+                {(isAdminMode || (selectedVendor && isVerified === selectedVendor.id)) && (
                   <div className="col-span-full grid grid-cols-1 lg:grid-cols-3 gap-4 border-t border-slate-200 mt-2 pt-4">
                     <div className="lg:col-span-2 space-y-2">
                       <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
                         <LinkIcon className="h-3 w-3" /> 업체 전용 접속 링크 (Admin Only)
                       </p>
-                      <div className="flex items-center gap-2 bg-indigo-50/30 border border-indigo-100 rounded-lg p-2">
-                        <code className="text-[10px] text-indigo-600 font-mono truncate flex-1">
-                          {`${window.location.origin}/?v=${selectedVendor.id}`}
-                        </code>
-                        <button 
-                          onClick={() => copyVendorLink(selectedVendor.id)}
-                          className="px-3 py-1 bg-white border border-indigo-200 text-indigo-600 text-[10px] font-bold rounded shadow-sm hover:bg-indigo-50 transition-colors"
-                        >
-                          링크 복사
-                        </button>
+                      <div className="flex items-center gap-4 bg-indigo-50/30 border border-indigo-100 rounded-xl p-3">
+                        <div className="bg-white p-2 rounded-lg shadow-sm">
+                          <QRCodeCanvas 
+                            value={`${window.location.origin}/?v=${selectedVendor.id}`} 
+                            size={64}
+                            level="H"
+                            includeMargin={false}
+                          />
+                        </div>
+                        <div className="flex-1 space-y-2">
+                          <code className="text-[10px] text-indigo-600 font-mono break-all block leading-tight">
+                            {`${window.location.origin}/?v=${selectedVendor.id}`}
+                          </code>
+                          <button 
+                            onClick={() => copyVendorLink(selectedVendor.id)}
+                            className="w-full px-3 py-1.5 bg-white border border-indigo-200 text-indigo-600 text-[10px] font-bold rounded shadow-sm hover:bg-indigo-50 transition-colors flex items-center justify-center gap-2"
+                          >
+                            <LinkIcon className="h-3 w-3" /> 링크 복사
+                          </button>
+                        </div>
                       </div>
                     </div>
                     <div className="space-y-2">
