@@ -886,7 +886,7 @@ export default function App() {
       '제조사': item.maker || '',
       '협가': item.costPrice || 0,
       '네고율(%)': item.negoRate || 0,
-      '단가(최종)': item.unitPrice,
+      '단가(최종)': calculatePrice(item.costPrice, item.negoRate),
       '비고': item.remarks || ''
     }));
 
@@ -1707,7 +1707,7 @@ export default function App() {
                               ) : <span>{item.negoRate || 0}%</span>}
                             </td>
                             <td className="px-6 py-4 text-right font-bold text-slate-900 bg-slate-50/50">
-                              {Math.floor(item.unitPrice).toLocaleString()}원
+                              {Math.floor(calculatePrice(item.costPrice, item.negoRate)).toLocaleString()}원
                             </td>
                             <td className="px-6 py-4 text-xs font-bold text-indigo-600">
                               {editingPriceId === item.id ? (
