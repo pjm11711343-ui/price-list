@@ -1,0 +1,87 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Global Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Vendor Validation
+    function isValidVendor(data) {
+      return data.name is string && data.name.size() > 0 && data.name.size() <= 100
+          && data.email is string && data.email.size() <= 100
+          && (data.password == null || (data.password is string && data.password.size() >= 4 && data.password.size() <= 20))
+          && (data.phone == null || data.phone is string)
+          && (data.fax == null || data.fax is string)
+          && (data.representative == null || data.representative is string)
+          && (data.businessNumber == null || data.businessNumber is string)
+          && (data.notes == null || data.notes is string)
+          && (data.priceTableUrl == null || data.priceTableUrl is string)
+          && (data.priceTableFileType == null || data.priceTableFileType is string)
+          && (data.priceTableFileName == null || data.priceTableFileName is string)
+          && (data.useRounding == null || data.useRounding is bool)
+          && (data.masterCustomFlag == null || data.masterCustomFlag is bool);
+    }
+
+    match /vendors/{vendorId} {
+      allow delete: if true;
+      allow read: if true; // Publicly listable for now to select vendor
+      allow create: if isValidId(vendorId) && isValidVendor(incoming());
+      allow update: if isValidVendor(incoming()) && (
+        incoming().diff(existing()).affectedKeys().hasOnly(['name', 'phone', 'fax', 'representative', 'businessNumber', 'email', 'password', 'updatedAt', 'notes', 'priceTableUrl', 'priceTableFileType', 'priceTableFileName', 'useRounding', 'masterCustomFlag'])
+      );
+
+      match /prices/{priceId} {
+        function isValidPrice(data) {
+          return data.itemName is string && data.itemName.size() > 0 && data.itemName.size() <= 200
+              && data.unitPrice is number && data.unitPrice >= 0
+              && (data.costPrice == null || data.costPrice is number)
+              && (data.negoRate == null || data.negoRate is number)
+              && (data.spec == null || data.spec is string)
+              && (data.unit == null || data.unit is string)
+              && (data.remarks == null || data.remarks is string)
+              && (data.maker == null || data.maker is string)
+              && (data.isConfirmed == null || data.isConfirmed is bool)
+              && (data.order == null || data.order is number);
+        }
+
+        allow read: if true; 
+        allow create: if isValidPrice(incoming());
+        allow update: if isValidPrice(incoming());
+        allow delete: if true;
+      }
+    }
+
+    match /comparison_matrix/{rowId} {
+      function isValidComparison(data) {
+        return data.category is string && data.category.size() > 0 && data.category.size() <= 200
+            && (data.vendor1 == null || data.vendor1 is string)
+            && (data.vendor2 == null || data.vendor2 is string)
+            && (data.vendor3 == null || data.vendor3 is string)
+            && (data.vendor4 == null || data.vendor4 is string)
+            && (data.order == null || data.order is number);
+      }
+      allow read: if true;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if true;
+    }
+  }
+}
