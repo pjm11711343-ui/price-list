@@ -157,16 +157,14 @@ export default function App() {
 
   const calculatePrice = (cost: number, rate: number) => {
     let price = cost * (1 - (rate / 100));
-    if (selectedVendor?.useRounding) {
-      // 5원 이하 절사, 5원 이상 반올림 (사실상 5원 미만 절사, 5원 이상 반올림이 표준이나
-      // 요청대로 5원 경계에서의 처리를 구현. 보통 5원 이상이면 올리는 게 표준 반올림임)
-      const lastDigit = price % 10;
-      if (lastDigit >= 5) {
-        price = Math.ceil(price / 10) * 10;
-      } else {
-        price = Math.floor(price / 10) * 10;
-      }
+    const method = selectedVendor?.roundingMethod || 'none';
+    
+    // 5원 이상 반올림, 4원 이하 절사 (10원 단위로 맞춤)
+    if (method === 'round' || method === 'floor') {
+      // User specifically asked for "5 up, 4 cut" which is standard Math.round to 10s
+      price = Math.round(price / 10) * 10;
     }
+    
     return price;
   };
 
@@ -419,7 +417,6 @@ export default function App() {
             unitPrice,
             remarks: String(row['비고'] || ''),
             maker: String(row['메이커'] || row['제조사'] || ''),
-            isConfirmed: false,
             order: count,
             updatedAt: serverTimestamp()
           };
@@ -583,7 +580,7 @@ export default function App() {
       email: formData.get('email') as string,
       password: password,
       notes: formData.get('notes') as string,
-      useRounding: formData.get('useRounding') === 'on',
+      roundingMethod: formData.get('useRounding') === 'on' ? 'round' : 'none',
       masterCustomFlag: formData.get('masterCustomFlag') === 'on',
       priceTableUrl,
       priceTableFileType,
@@ -656,7 +653,7 @@ export default function App() {
       businessNumber: formData.get('businessNumber') as string,
       email: formData.get('email') as string,
       notes: formData.get('notes') as string,
-      useRounding: formData.get('useRounding') === 'on',
+      roundingMethod: formData.get('useRounding') === 'on' ? 'round' : 'none',
       masterCustomFlag: formData.get('masterCustomFlag') === 'on',
       priceTableUrl,
       priceTableFileType,
@@ -826,7 +823,6 @@ export default function App() {
       unitPrice,
       remarks: formData.get('remarks') as string,
       maker: formData.get('maker') as string,
-      isConfirmed: false,
       order: priceItems.length + 1,
     };
 
@@ -873,20 +869,6 @@ export default function App() {
     } catch (error) {
       console.error("Error updating price item:", error);
       alert("수정 중 오류가 발생했습니다.");
-    }
-  };
-
-  const togglePriceItemConfirmation = async (itemId: string, currentState: boolean) => {
-    if (!selectedVendor) return;
-    try {
-      await updateDoc(doc(db, 'vendors', selectedVendor.id, 'prices', itemId), {
-        isConfirmed: !currentState,
-        updatedAt: serverTimestamp()
-      });
-    } catch (error) {
-      console.error("Error toggling item confirmation:", error);
-      handleFirestoreError(error, OperationType.UPDATE, `vendors/${selectedVendor.id}/prices/${itemId}`);
-      alert("확인 상태 변경 중 오류가 발생했습니다.");
     }
   };
 
@@ -1621,10 +1603,35 @@ export default function App() {
                         <th className="px-6 py-4 border-b border-slate-200">단위</th>
                         <th className="px-6 py-4 border-b border-slate-200 text-right">협가</th>
                         <th className="px-6 py-4 border-b border-slate-200 text-right">네고율</th>
-                        <th className="px-6 py-4 border-b border-slate-200 text-right">단가 (최종)</th>
+                        <th className="px-6 py-4 border-b border-slate-200 text-right">
+                          <div className="flex flex-col items-end gap-1">
+                            <span>단가 (최종)</span>
+                            {canManageItems && (
+                              <label className="flex items-center gap-1 cursor-pointer group/rounding">
+                                <input 
+                                  type="checkbox" 
+                                  checked={selectedVendor?.roundingMethod === 'round'}
+                                  onChange={async (e) => {
+                                    if (!selectedVendor) return;
+                                    const newMethod = e.target.checked ? 'round' : 'none';
+                                    try {
+                                      await updateDoc(doc(db, 'vendors', selectedVendor.id), {
+                                        roundingMethod: newMethod,
+                                        updatedAt: serverTimestamp()
+                                      });
+                                    } catch (error) {
+                                      console.error("Error updating rounding method:", error);
+                                    }
+                                  }}
+                                  className="w-3 h-3 rounded text-indigo-600 focus:ring-0 cursor-pointer"
+                                />
+                                <span className="text-[9px] text-slate-400 group-hover/rounding:text-indigo-500 transition-colors">반올림/절사</span>
+                              </label>
+                            )}
+                          </div>
+                        </th>
                         <th className="px-6 py-4 border-b border-slate-200">제조사</th>
                         <th className="px-6 py-4 border-b border-slate-200">비고</th>
-                        <th className="px-6 py-4 border-b border-slate-200">확인</th>
                         <th className="px-6 py-4 border-b border-slate-200 text-right">관리</th>
                       </tr>
                     </thead>
@@ -1636,14 +1643,11 @@ export default function App() {
                             key={item.id}
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
-                            className={`group hover:bg-slate-50/50 transition-colors ${item.isConfirmed ? 'bg-emerald-50/50' : ''}`}
+                            className="group hover:bg-slate-50/50 transition-colors"
                           >
                             <td className="px-6 py-4">
                               <div className="flex items-center gap-2">
                                 {String(idx + 1).padStart(2, '0')}
-                                {item.isConfirmed && (
-                                  <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
-                                )}
                               </div>
                             </td>
                             <td className="px-6 py-4 font-medium text-slate-800">
@@ -1703,7 +1707,7 @@ export default function App() {
                               ) : <span>{item.negoRate || 0}%</span>}
                             </td>
                             <td className="px-6 py-4 text-right font-bold text-slate-900 bg-slate-50/50">
-                              {item.unitPrice.toLocaleString()}원
+                              {Math.floor(item.unitPrice).toLocaleString()}원
                             </td>
                             <td className="px-6 py-4 text-xs font-bold text-indigo-600">
                               {editingPriceId === item.id ? (
@@ -1724,14 +1728,6 @@ export default function App() {
                                   className="w-full bg-white border border-indigo-200 rounded px-2 py-1 text-sm focus:ring-1 focus:ring-indigo-400 outline-none"
                                 />
                               ) : item.remarks || '-'}
-                            </td>
-                            <td className="px-6 py-4">
-                              <input 
-                                type="checkbox" 
-                                checked={item.isConfirmed || false} 
-                                onChange={() => togglePriceItemConfirmation(item.id, item.isConfirmed || false)}
-                                className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-                              />
                             </td>
                             <td className="px-6 py-4 text-right">
                               {canManageItems && (
@@ -1904,7 +1900,7 @@ export default function App() {
                     <input type="checkbox" name="useRounding" className="w-5 h-5 rounded-lg border-2 border-slate-300 text-indigo-600 focus:ring-indigo-500" />
                     <div>
                       <p className="text-sm font-bold text-slate-800">단가 10원 단위 반올림/절사</p>
-                      <p className="text-[10px] text-slate-500 font-medium tracking-tight">5원 이하 절사, 5원 이상 반올림</p>
+                      <p className="text-[10px] text-slate-500 font-medium tracking-tight">5원 이상 올림, 4원 이하 절사</p>
                     </div>
                   </label>
                   <label className="flex items-center gap-3 cursor-pointer p-4 bg-indigo-50/50 rounded-2xl border-2 border-indigo-100 hover:bg-white hover:border-indigo-400 transition-all">
@@ -2068,10 +2064,10 @@ export default function App() {
                 </div>
                 <div className="col-span-full grid grid-cols-1 md:grid-cols-2 gap-4">
                   <label className="flex items-center gap-3 cursor-pointer p-4 bg-slate-50 rounded-2xl border-2 border-slate-100 hover:bg-white hover:border-indigo-200 transition-all">
-                    <input type="checkbox" name="useRounding" defaultChecked={selectedVendor.useRounding} className="w-5 h-5 rounded-lg border-2 border-slate-300 text-indigo-600 focus:ring-indigo-500" />
+                    <input type="checkbox" name="useRounding" defaultChecked={selectedVendor.roundingMethod === 'round'} className="w-5 h-5 rounded-lg border-2 border-slate-300 text-indigo-600 focus:ring-indigo-500" />
                     <div>
                       <p className="text-sm font-bold text-slate-800">단가 10원 단위 반올림/절사</p>
-                      <p className="text-[10px] text-slate-500 font-medium tracking-tight">5원 이하 절사, 5원 이상 반올림</p>
+                      <p className="text-[10px] text-slate-500 font-medium tracking-tight">5원 이상 올림, 4원 이하 절사</p>
                     </div>
                   </label>
                   <label className="flex items-center gap-3 cursor-pointer p-4 bg-indigo-50/50 rounded-2xl border-2 border-indigo-100 hover:bg-white hover:border-indigo-400 transition-all">

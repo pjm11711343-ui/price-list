@@ -12,6 +12,7 @@ export interface Vendor {
   priceTableFileName?: string;
   notes?: string;
   useRounding?: boolean;
+  roundingMethod?: 'none' | 'round' | 'floor';
   masterCustomFlag?: boolean;
   handlingDetails?: Record<string, string>;
   createdAt?: any;
@@ -39,6 +40,5 @@ export interface PriceItem {
   unitPrice: number; // 단가 (최종 계산가)
   remarks?: string;
   maker?: string;
-  isConfirmed?: boolean;
   order?: number;
 }
