@@ -48,6 +48,7 @@ export interface PriceItem {
   order?: number;
   useRounding?: boolean;
   hasPendingUpdate?: boolean; // 승인 대기 중 여부
+  updatedAt?: any;
 }
 
 export interface PendingPriceUpdate {

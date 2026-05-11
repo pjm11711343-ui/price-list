@@ -182,7 +182,8 @@ export default function App() {
     weight: 90,
     discountAmount: 120,
     unitPrice: 120,
-    change: 100
+    change: 100,
+    lastUpdated: 150
   });
   const [resizing, setResizing] = useState<keyof typeof columnWidths | null>(null);
 
@@ -578,6 +579,76 @@ export default function App() {
     } catch (error) {
       console.error("Rejection error:", error);
       alert("거절 처리 중 오류가 발생했습니다.");
+    }
+  };
+
+  const handleBackupAllData = async () => {
+    try {
+      setLoading(true);
+      const allVendorsSnapshot = await getDocs(collection(db, 'vendors'));
+      const workbook = XLSX.utils.book_new();
+
+      for (const vendorDoc of allVendorsSnapshot.docs) {
+        const vendorData = vendorDoc.data();
+        const pricesSnapshot = await getDocs(collection(db, 'vendors', vendorDoc.id, 'prices'));
+        
+        const prices = pricesSnapshot.docs.map(d => {
+          const data = d.data();
+          return {
+            '품번': data.itemCode || '',
+            '품명': data.itemName || '',
+            '규격': data.spec || '',
+            '단위': data.unit || '',
+            '협가': data.costPrice || 0,
+            '네고율': data.negoRate || 0,
+            '구매단가': data.unitPrice || 0,
+            '메이커': data.maker || '',
+            '최근변경일': data.updatedAt?.toDate ? data.updatedAt.toDate().toLocaleString('ko-KR') : '-'
+          };
+        });
+
+        if (prices.length > 0) {
+          const worksheet = XLSX.utils.json_to_sheet(prices);
+          XLSX.utils.book_append_sheet(workbook, worksheet, vendorData.name.substring(0, 31).replace(/[\\?*\/\[\]]/g, ''));
+        }
+      }
+
+      XLSX.writeFile(workbook, `단가표_전체백업_${new Date().toLocaleDateString('ko-KR')}.xlsx`);
+      alert('전체 데이터 백업이 완료되었습니다.');
+    } catch (error) {
+      console.error("Backup error:", error);
+      alert('백업 중 오류가 발생했습니다.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleBackupCurrentVendor = async () => {
+    if (!selectedVendor || priceItems.length === 0) return;
+    
+    try {
+      setLoading(true);
+      const workbook = XLSX.utils.book_new();
+      const exportData = priceItems.map(item => ({
+        '품번': item.itemCode || '',
+        '품명': item.itemName || '',
+        '규격': item.spec || '',
+        '단위': item.unit || '',
+        '협가': item.costPrice || 0,
+        '네고율': item.negoRate || 0,
+        '구매단가': item.unitPrice || 0,
+        '메이커': item.maker || '',
+        '최근변경일': item.updatedAt?.toDate ? item.updatedAt.toDate().toLocaleString('ko-KR') : '-'
+      }));
+
+      const worksheet = XLSX.utils.json_to_sheet(exportData);
+      XLSX.utils.book_append_sheet(workbook, worksheet, '단가표');
+      XLSX.writeFile(workbook, `${selectedVendor.name}_단가표_백업_${new Date().toLocaleDateString('ko-KR')}.xlsx`);
+    } catch (error) {
+      console.error("Vendor backup error:", error);
+      alert('백업 중 오류가 발생했습니다.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -1485,7 +1556,8 @@ export default function App() {
       '구매단가': item.unitPrice || 0,
       '협가': item.costPrice || 0,
       '제조사': item.maker || '',
-      '비고': item.remarks || ''
+      '비고': item.remarks || '',
+      '최근변경일': item.updatedAt?.toDate ? item.updatedAt.toDate().toLocaleString('ko-KR') : '-'
     }));
 
     const worksheet = XLSX.utils.json_to_sheet(data);
@@ -1526,6 +1598,7 @@ export default function App() {
 
           const newItem = {
             vendorId: selectedVendor.id,
+            itemCode: row['품번'] || row['품목코드'] || row['품번'] || row['Item Code'] || '',
             itemName: row['품목명'] || row['품목'] || '',
             spec: row['규격'] || '',
             unit: row['단위'] || '',
@@ -1537,6 +1610,7 @@ export default function App() {
             unitPrice,
             remarks: row['비고'] || '',
             order: priceItems.length + importCount + 1,
+            updatedAt: serverTimestamp()
           };
 
           if (newItem.itemName) {
@@ -1661,13 +1735,22 @@ export default function App() {
                   </span>
                 </h2>
                 {isAdminMode && (
-                  <button 
-                    onClick={() => setIsAddingVendor(true)}
-                    className="p-1.5 hover:bg-slate-200 rounded-md transition-colors"
-                    id="add-vendor-btn"
-                  >
-                    <Plus className="h-4 w-4 text-slate-600" />
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <button 
+                      onClick={handleBackupAllData}
+                      className="p-1.5 hover:bg-slate-200 rounded-md transition-colors text-slate-400 hover:text-indigo-600"
+                      title="전체 데이터 엑셀 백업"
+                    >
+                      <Download className="h-4 w-4" />
+                    </button>
+                    <button 
+                      onClick={() => setIsAddingVendor(true)}
+                      className="p-1.5 hover:bg-slate-200 rounded-md transition-colors"
+                      id="add-vendor-btn"
+                    >
+                      <Plus className="h-4 w-4 text-slate-600" />
+                    </button>
+                  </div>
                 )}
               </div>
               <div className="relative group">
@@ -1866,13 +1949,22 @@ export default function App() {
                           거래처 정보 수정
                         </button>
                         {isAdminMode && (
-                          <button 
-                            onClick={(e) => deleteVendor(selectedVendor.id, e)}
-                            className="flex items-center gap-2 px-5 py-2.5 bg-rose-50 text-rose-600 rounded-xl text-xs font-bold hover:bg-rose-100 transition-all active:scale-95 border border-rose-100"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                            업체 삭제
-                          </button>
+                          <>
+                            <button 
+                              onClick={handleBackupCurrentVendor}
+                              className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-xs font-bold hover:bg-indigo-700 transition-all active:scale-95 shadow-lg shadow-indigo-100"
+                            >
+                              <Download className="h-3.5 w-3.5" />
+                              단가표 백업 (Excel)
+                            </button>
+                            <button 
+                              onClick={(e) => deleteVendor(selectedVendor.id, e)}
+                              className="flex items-center gap-2 px-5 py-2.5 bg-rose-50 text-rose-600 rounded-xl text-xs font-bold hover:bg-rose-100 transition-all active:scale-95 border border-rose-100"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                              업체 삭제
+                            </button>
+                          </>
                         )}
                       </div>
                     )}
@@ -2293,6 +2385,13 @@ export default function App() {
                           className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-indigo-400 transition-colors bg-transparent z-10"
                         />
                       </th>
+                      <th className="px-4 text-left font-semibold relative border-r border-slate-50 group/th" style={{ width: columnWidths.lastUpdated }}>
+                        최근변경일
+                        <div 
+                          onMouseDown={(e) => startResize(e, 'lastUpdated')}
+                          className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-indigo-400 transition-colors bg-transparent z-10"
+                        />
+                      </th>
                       {canManageItems && (
                         <th className="w-12 px-4 text-center font-semibold">관리</th>
                       )}
@@ -2391,6 +2490,15 @@ export default function App() {
                              </span>
                           </td>
                           <td className="px-4 text-slate-500 font-medium truncate">{item.maker || '-'}</td>
+                          <td className="px-4 text-slate-400 text-[10px] tabular-nums truncate">
+                            {item.updatedAt?.toDate ? item.updatedAt.toDate().toLocaleString('ko-KR', {
+                              year: '2-digit',
+                              month: '2-digit',
+                              day: '2-digit',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            }) : '-'}
+                          </td>
                           {canManageItems && (
                             <td className="px-4 py-2">
                               <div className="flex items-center justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
