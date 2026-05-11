@@ -62,6 +62,20 @@ service cloud.firestore {
           && (data.order is number);
     }
 
+    // Pending Update Validation Helper
+    function isValidPendingUpdate(data) {
+      return data.vendorId is string
+          && data.priceItemId is string
+          && data.status in ['pending', 'approved', 'rejected']
+          && data.requestedAt is timestamp;
+    }
+
+    match /pending_updates/{updateId} {
+      allow read, write: if true; // In prototype, we allow access.
+      // allow create: if isValidPendingUpdate(incoming());
+      // allow update: if isValidPendingUpdate(incoming());
+    }
+
     match /vendors/{vendorId} {
       // For a prototype without forced Auth, we allow read/write.
       // In a real app, we would restrict based on request.auth.

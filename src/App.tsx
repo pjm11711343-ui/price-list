@@ -168,7 +168,7 @@ export default function App() {
   const [isApprovalsModalOpen, setIsApprovalsModalOpen] = useState(false);
 
   const [activeCategory, setActiveCategory] = useState('전체');
-  const [categories, setCategories] = useState<string[]>(['밸브', '피팅', '파이프', 'STS 파이프', '프랜지', '기타']);
+  const [categories, setCategories] = useState<string[]>(['밸브류', '피팅류', '파이프', 'STS파이프', '프랜지', '기타']);
   const [bulkNegoValue, setBulkNegoValue] = useState(5);
   const [columnWidths, setColumnWidths] = useState({
     itemCode: 100,
@@ -189,7 +189,7 @@ export default function App() {
     if (selectedVendor?.categories && selectedVendor.categories.length > 0) {
       setCategories(selectedVendor.categories);
     } else {
-      setCategories(['밸브', '피팅', '파이프', 'STS 파이프', '프랜지', '기타']);
+      setCategories(['밸브류', '피팅류', '파이프', 'STS파이프', '프랜지', '기타']);
     }
   }, [selectedVendor?.id, selectedVendor?.categories]);
 
@@ -382,6 +382,11 @@ export default function App() {
       }
 
       if (isDeepLinkMode && !isAdminMode) {
+        if (item.hasPendingUpdate) {
+          alert('이미 승인 대기 중인 변경 요청이 있습니다. 기존 요청이 처리된 후 다시 시도해 주세요.');
+          return;
+        }
+
         // Create pending update
         await addDoc(collection(db, 'pending_updates'), {
           vendorId: selectedVendor.id,
@@ -408,6 +413,7 @@ export default function App() {
       }
     } catch (error) {
       console.error("Error updating price inline:", error);
+      alert('변경 사항 반영 중 오류가 발생했습니다. 권한을 확인해 주세요.');
     }
   };
 
@@ -723,7 +729,7 @@ export default function App() {
         '비고': ''
       },
       {
-        '카테고리': 'STS 파이프',
+        '카테고리': 'STS파이프',
         '품명': 'STS304 PIPE 20A',
         '규격': '20A SCH10',
         '품번': 'PP-STS-20A',
@@ -1007,7 +1013,7 @@ export default function App() {
       notes: formData.get('notes') as string,
       roundingMethod: formData.get('useRounding') === 'on' ? 'round' : 'none',
       masterCustomFlag: formData.get('masterCustomFlag') === 'on',
-      categories: ['밸브', '피팅', '파이프', 'STS 파이프', '프랜지', '기타'],
+      categories: ['밸브류', '피팅류', '파이프', 'STS파이프', '프랜지', '기타'],
       priceTableUrl,
       priceTableFileType,
       priceTableFileName,
@@ -1305,6 +1311,11 @@ export default function App() {
     try {
       if (isDeepLinkMode && !isAdminMode) {
         const item = priceItems.find(i => i.id === itemId);
+        if (item?.hasPendingUpdate) {
+          alert('이미 승인 대기 중인 변경 요청이 있습니다. 기존 요청이 처리된 후 다시 시도해 주세요.');
+          return;
+        }
+
         await addDoc(collection(db, 'pending_updates'), {
           vendorId: selectedVendor.id,
           priceItemId: itemId,
@@ -1477,10 +1488,18 @@ export default function App() {
                 )}
               </>
             ) : selectedVendor && (
-              <div className="flex items-center gap-2">
-                <div className="h-4 w-[1px] bg-slate-200" />
-                <span className="text-sm font-bold text-slate-400">전용 포탈</span>
-                <span className="text-sm font-black text-indigo-600">{selectedVendor.name}</span>
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <div className="h-4 w-[1px] bg-slate-200" />
+                  <span className="text-sm font-bold text-slate-400">전용 포탈</span>
+                  <span className="text-sm font-black text-indigo-600">{selectedVendor.name}</span>
+                </div>
+                <button 
+                  onClick={() => isAdminMode ? setIsAdminMode(false) : setShowAdminLogin(true)}
+                  className={`text-[10px] font-bold px-2 py-1 rounded transition-colors ${isAdminMode ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-400 hover:bg-slate-200 hover:text-slate-600'}`}
+                >
+                  {isAdminMode ? '관리모드 활성' : '관리자'}
+                </button>
               </div>
             )}
           </nav>

@@ -13,6 +13,11 @@
           "description": "Individual comparison items for this vendor"
         }
       }
+    },
+    "pending_updates": {
+      "path": "pending_updates",
+      "schema": "PendingPriceUpdate",
+      "description": "Approval queue for price changes requested by vendors"
     }
   },
   "entities": {
@@ -64,6 +69,23 @@
         "order": { "type": "number" }
       },
       "required": ["category"]
+    },
+    "PendingPriceUpdate": {
+      "title": "Pending Price Update",
+      "description": "A request to change price data that requires approval",
+      "type": "object",
+      "properties": {
+        "vendorId": { "type": "string" },
+        "priceItemId": { "type": "string" },
+        "itemName": { "type": "string" },
+        "oldData": { "type": "object" },
+        "newData": { "type": "object" },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "requestedBy": { "type": "string" },
+        "requestedAt": { "type": "string", "format": "date-time" },
+        "approvedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["vendorId", "priceItemId", "status", "requestedAt"]
     }
   }
 }
