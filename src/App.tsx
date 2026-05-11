@@ -1511,6 +1511,7 @@ export default function App() {
       negoRate,
       negoType,
       unitPrice,
+      baseUnitPrice: unitPrice,
       weight,
       useRounding,
       remarks: formData.get('remarks') as string,
@@ -1673,6 +1674,7 @@ export default function App() {
             negoType,
             weight,
             unitPrice,
+            baseUnitPrice: unitPrice,
             remarks: row['비고'] || '',
             order: priceItems.length + importCount + 1,
             updatedAt: serverTimestamp()
@@ -2595,9 +2597,20 @@ export default function App() {
                             {item.negoType === 'sts_pipe' ? '-' : `▼${getRoundedValue(discount, item.useRounding).toLocaleString()}`}
                           </td>
                           <td className="px-4 text-right">
-                             <span className={`text-[10px] font-bold ${idx % 3 === 0 ? 'text-indigo-500' : idx % 2 === 0 ? 'text-rose-500' : 'text-slate-300'}`}>
-                                {idx % 3 === 0 ? '+2.1%' : idx % 2 === 0 ? '-2.5%' : '-'}
-                             </span>
+                             {(() => {
+                               const base = getRoundedValue(item.baseUnitPrice ?? item.unitPrice, item.useRounding);
+                               const current = getRoundedValue(item.unitPrice, item.useRounding);
+                               const diff = current - base;
+                               const percent = (base && base !== 0) ? (diff / base) * 100 : 0;
+                               
+                               if (Math.abs(percent) < 0.01) return <span className="text-[10px] font-bold text-slate-300">-</span>;
+                               
+                               return (
+                                 <span className={`text-[10px] font-bold ${percent > 0 ? 'text-rose-500' : 'text-indigo-500'}`}>
+                                    {percent > 0 ? '+' : ''}{percent.toFixed(1)}%
+                                 </span>
+                               );
+                             })()}
                           </td>
                           <td className="px-4 text-slate-500 font-medium truncate">{item.maker || '-'}</td>
                           <td className="px-4 text-slate-400 text-[10px] tabular-nums truncate">

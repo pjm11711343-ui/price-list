@@ -46,6 +46,7 @@ export interface PriceItem {
   negoType?: 'percent' | 'sts_pipe'; // 네고 방식 (STS PIPE 추가)
   weight?: number; // 단중 (kg/m 등)
   unitPrice: number; // 구매단가 (최종 계산가)
+  baseUnitPrice?: number; // 기준 구매단가 (변동률 계산용)
   remarks?: string;
   maker?: string;
   order?: number;
