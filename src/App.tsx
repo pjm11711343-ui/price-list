@@ -27,9 +27,24 @@ import {
   Link as LinkIcon,
   ArrowUpDown,
   History,
-  RotateCcw
+  RotateCcw,
+  Scale,
+  ArrowLeftRight,
+  GripVertical,
+  BarChart3,
+  Users
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { 
+  BarChart, 
+  Bar, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip as RechartsTooltip, 
+  ResponsiveContainer, 
+  Cell 
+} from 'recharts';
+import { motion, AnimatePresence, Reorder } from 'motion/react';
 import * as XLSX from 'xlsx';
 import { QRCodeCanvas } from 'qrcode.react';
 import { 
@@ -156,6 +171,8 @@ export default function App() {
   const [addItemNegoType, setAddItemNegoType] = useState<'percent' | 'sts_pipe'>('percent');
   const [selectedPriceIds, setSelectedPriceIds] = useState<Set<string>>(new Set());
   const [isBulkAdjustModalOpen, setIsBulkAdjustModalOpen] = useState(false);
+  const [comparisonItems, setComparisonItems] = useState<PriceItem[]>([]);
+  const [isComparisonModalOpen, setIsComparisonModalOpen] = useState(false);
   const [bulkAdjustValue, setBulkAdjustValue] = useState<number>(0);
   const [bulkAdjustType, setBulkAdjustType] = useState<'percent'>('percent');
   const [isDeepLinkMode, setIsDeepLinkMode] = useState(false);
@@ -167,8 +184,88 @@ export default function App() {
   const [adminNotification, setAdminNotification] = useState(false);
   const [isNotesExpanded, setIsNotesExpanded] = useState(true);
   const [isMatrixExpanded, setIsMatrixExpanded] = useState(false);
-  const [comparisonRows, setComparisonRows] = useState<ComparisonRow[]>([]);
-  const [isAddingComparisonRow, setIsAddingComparisonRow] = useState(false);
+  const [allPrices, setAllPrices] = useState<PriceItem[]>([]);
+  const [isMatrixLoading, setIsMatrixLoading] = useState(false);
+  const [matrixCategory, setMatrixCategory] = useState<string>('전체');
+
+  // Fetch all prices from all vendors for Matrix View
+  useEffect(() => {
+    if (viewMode !== 'matrix') return;
+
+    const fetchAllPrices = async () => {
+      setIsMatrixLoading(true);
+      try {
+        const pricesPromises = vendors.map(async (vendor) => {
+          const q = query(collection(db, 'vendors', vendor.id, 'prices'), orderBy('itemName', 'asc'));
+          const snapshot = await getDocs(q);
+          return snapshot.docs.map(doc => ({ 
+            id: doc.id, 
+            ...doc.data(),
+            vendorId: vendor.id,
+            vendorName: vendor.name 
+          } as any as PriceItem));
+        });
+
+        const allResults = await Promise.all(pricesPromises);
+        setAllPrices(allResults.flat());
+      } catch (error) {
+        console.error("Error fetching all prices for matrix:", error);
+      } finally {
+        setIsMatrixLoading(false);
+      }
+    };
+
+    fetchAllPrices();
+  }, [viewMode, vendors.length]);
+
+  const [matrixVendorIds, setMatrixVendorIds] = useState<Set<string>>(new Set());
+  const [showOnlySelectedVendors, setShowOnlySelectedVendors] = useState(false);
+
+  // Filter prices for matrix based on selected vendors
+  const filteredVendors = useMemo(() => {
+    if (showOnlySelectedVendors && matrixVendorIds.size > 0) {
+      return vendors.filter(v => matrixVendorIds.has(v.id));
+    }
+    return vendors;
+  }, [vendors, matrixVendorIds, showOnlySelectedVendors]);
+
+  // Matrix Processing: Group items by Name + Spec
+  const matrixData = useMemo(() => {
+    const grouped: Record<string, { itemName: string; spec: string; unit: string; category: string; prices: Record<string, number> }> = {};
+    
+    // Filter allPrices based on current search, category, and selected vendors
+    const filtered = allPrices.filter(item => {
+      const matchesSearch = searchTerm === '' || 
+        item.itemName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (item.spec && item.spec.toLowerCase().includes(searchTerm.toLowerCase()));
+      
+      const matchesCategory = matrixCategory === '전체' || item.category === matrixCategory;
+      
+      const matchesVendorSelection = !showOnlySelectedVendors || matrixVendorIds.size === 0 || matrixVendorIds.has(item.vendorId);
+      
+      return matchesSearch && matchesCategory && matchesVendorSelection;
+    });
+
+    filtered.forEach(item => {
+      const key = `${item.itemName}_${item.spec || ''}`;
+      if (!grouped[key]) {
+        grouped[key] = {
+          itemName: item.itemName,
+          spec: item.spec || '-',
+          unit: item.unit || '-',
+          category: item.category || '기타',
+          prices: {}
+        };
+      }
+      grouped[key].prices[item.vendorId] = item.unitPrice;
+    });
+
+    return Object.values(grouped).sort((a, b) => a.itemName.localeCompare(b.itemName));
+  }, [allPrices, searchTerm, matrixCategory, matrixVendorIds, showOnlySelectedVendors]);
+
+  const matrixCategories = useMemo(() => {
+    return ['전체', ...Array.from(new Set(allPrices.map(p => p.category).filter(c => c && c !== '전체')))];
+  }, [allPrices]);
   const [usdToKrw, setUsdToKrw] = useState<number>(1350);
   const [lastRateUpdate, setLastRateUpdate] = useState<string>("");
   const [savingMatrixId, setSavingMatrixId] = useState<string | null>(null);
@@ -176,6 +273,16 @@ export default function App() {
   const [isApprovalsModalOpen, setIsApprovalsModalOpen] = useState(false);
 
   const [activeCategory, setActiveCategory] = useState('전체');
+  const [selectedMatrixRow, setSelectedMatrixRow] = useState<any>(null);
+
+  const chartData = useMemo(() => {
+    if (!selectedMatrixRow) return [];
+    return vendors.map(v => ({
+      name: v.name,
+      price: selectedMatrixRow.prices[v.id] || 0
+    })).filter(d => d.price > 0).sort((a, b) => a.price - b.price);
+  }, [selectedMatrixRow, vendors]);
+
   const [categories, setCategories] = useState<string[]>(['밸브류', '피팅류', '파이프', 'STS파이프', '프랜지', '기타']);
   const [bulkNegoValue, setBulkNegoValue] = useState(5);
   const [columnWidths, setColumnWidths] = useState({
@@ -196,7 +303,9 @@ export default function App() {
 
   useEffect(() => {
     if (selectedVendor?.categories && selectedVendor.categories.length > 0) {
-      setCategories(selectedVendor.categories);
+      // Ensure categories are unique and don't contain "전체" which is reserved for the default tab
+      const uniqueCats = Array.from(new Set(selectedVendor.categories.filter(c => c && c.trim() !== '' && c.trim() !== '전체')));
+      setCategories(uniqueCats);
     } else {
       setCategories(['밸브류', '피팅류', '파이프', 'STS파이프', '프랜지', '기타']);
     }
@@ -224,15 +333,16 @@ export default function App() {
     if (!selectedVendor) return;
     try {
       setLoading(true);
+      const uniqueCats = Array.from(new Set(newCategories.filter(c => c && c.trim() !== '' && c.trim() !== '전체')));
       const docRef = doc(db, 'vendors', selectedVendor.id);
       const updateData = {
-        categories: newCategories,
+        categories: uniqueCats,
         updatedAt: serverTimestamp()
       };
       await updateDoc(docRef, updateData);
       
-      setCategories(newCategories);
-      setSelectedVendor(prev => prev ? { ...prev, categories: newCategories } : null);
+      setCategories(uniqueCats);
+      setSelectedVendor(prev => prev ? { ...prev, categories: uniqueCats } : null);
       return true;
     } catch (error: any) {
       console.error("Error updating categories:", error);
@@ -1068,22 +1178,6 @@ export default function App() {
     reader.readAsBinaryString(bulkItemFile);
   };
 
-  // Fetch Comparison Rows
-  useEffect(() => {
-    if (!selectedVendor) {
-      setComparisonRows([]);
-      return;
-    }
-    const q = query(collection(db, 'vendors', selectedVendor.id, 'handling_items'), orderBy('order', 'asc'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ComparisonRow));
-      setComparisonRows(data);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, `vendors/${selectedVendor.id}/handling_items`);
-    });
-    return unsubscribe;
-  }, [selectedVendor?.id]);
-
   // Fetch Vendors
   useEffect(() => {
     const q = query(collection(db, 'vendors'), orderBy('name', 'asc'));
@@ -1105,7 +1199,11 @@ export default function App() {
     if (selectedVendor) {
       const q = query(collection(db, 'vendors', selectedVendor.id, 'prices'));
       const unsubscribe = onSnapshot(q, (snapshot) => {
-        const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PriceItem));
+        const data = snapshot.docs.map(doc => ({ 
+          id: doc.id, 
+          vendorId: selectedVendor.id,
+          ...doc.data() 
+        } as PriceItem));
         setPriceItems(data);
       }, (error) => {
         handleFirestoreError(error, OperationType.LIST, `vendors/${selectedVendor.id}/prices`);
@@ -1195,6 +1293,21 @@ export default function App() {
     
     return items;
   }, [priceItems, priceSortField, priceSortOrder]);
+
+  const toggleComparison = (item: PriceItem) => {
+    setComparisonItems(prev => {
+      const vId = item.vendorId || selectedVendor?.id;
+      const exists = prev.find(i => i.id === item.id && i.vendorId === vId);
+      if (exists) {
+        return prev.filter(i => !(i.id === item.id && i.vendorId === vId));
+      }
+      if (prev.length >= 4) {
+        alert('최대 4개 품목까지만 비교 가능합니다.');
+        return prev;
+      }
+      return [...prev, { ...item, vendorId: vId, vendorName: selectedVendor?.name }];
+    });
+  };
 
   const handlePriceSort = (field: 'itemName' | 'spec' | 'order') => {
     if (priceSortField === field) {
@@ -1408,114 +1521,6 @@ export default function App() {
       setIsVerified(selectedVendor?.id || null);
     } else {
       alert('비밀번호가 일치하지 않습니다.');
-    }
-  };
-
-  const handleAddComparisonRow = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!selectedVendor) return;
-    const formData = new FormData(e.currentTarget);
-    const newRow = {
-      category: formData.get('category') as string,
-      vendor1: '',
-      vendor2: '',
-      vendor3: '',
-      vendor4: '',
-      order: comparisonRows.length,
-      updatedAt: serverTimestamp()
-    };
-
-    try {
-      await addDoc(collection(db, 'vendors', selectedVendor.id, 'handling_items'), newRow);
-      setIsAddingComparisonRow(false);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, `vendors/${selectedVendor.id}/handling_items`);
-    }
-  };
-
-  const updateComparisonRow = async (id: string, field: string, value: string) => {
-    if (!selectedVendor) return;
-    try {
-      setSavingMatrixId(id);
-      await updateDoc(doc(db, 'vendors', selectedVendor.id, 'handling_items', id), {
-        [field]: value,
-        updatedAt: serverTimestamp()
-      });
-      setTimeout(() => setSavingMatrixId(null), 1500);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `vendors/${selectedVendor.id}/handling_items/${id}`);
-      setSavingMatrixId(null);
-    }
-  };
-
-  // Debounced wrapper for real-time saving
-  const debouncedUpdateRefs = React.useRef<{[key: string]: NodeJS.Timeout}>({});
-  const updateVendorHandlingDetail = async (vendorId: string, categoryId: string, value: string) => {
-    try {
-      await updateDoc(doc(db, 'vendors', vendorId), {
-        [`handlingDetails.${categoryId}`]: value
-      });
-    } catch (error) {
-      console.error("Error updating vendor handling detail:", error);
-    }
-  };
-
-  const handleMatrixChange = (id: string, field: string, value: string) => {
-    const key = `${id}-${field}`;
-    if (debouncedUpdateRefs.current[key]) {
-      clearTimeout(debouncedUpdateRefs.current[key]);
-    }
-    
-    debouncedUpdateRefs.current[key] = setTimeout(() => {
-      updateComparisonRow(id, field, value);
-      delete debouncedUpdateRefs.current[key];
-    }, 800);
-  };
- 
-  const moveVendor = async (currentIndex: number, direction: 'up' | 'down') => {
-    const newIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
-    if (newIndex < 0 || newIndex >= sortedVendors.length) return;
-
-    const vendor1 = sortedVendors[currentIndex];
-    const vendor2 = sortedVendors[newIndex];
-
-    try {
-      // In manual mode, sortedVendors are sorted by their .order property.
-      // Swapping their order values swaps their positions.
-      const currentOrder = vendor1.order ?? currentIndex;
-      const targetOrder = vendor2.order ?? newIndex;
-
-      await updateDoc(doc(db, 'vendors', vendor1.id), { order: targetOrder });
-      await updateDoc(doc(db, 'vendors', vendor2.id), { order: currentOrder });
-    } catch (error) {
-      console.error("Error moving vendor:", error);
-    }
-  };
-
-  const moveComparisonRow = async (rowIndex: number, direction: 'up' | 'down') => {
-    if (!selectedVendor) return;
-    const newIndex = direction === 'up' ? rowIndex - 1 : rowIndex + 1;
-    if (newIndex < 0 || newIndex >= comparisonRows.length) return;
-
-    const row1 = comparisonRows[rowIndex];
-    const row2 = comparisonRows[newIndex];
-
-    try {
-      await updateDoc(doc(db, 'vendors', selectedVendor.id, 'handling_items', row1.id), { order: newIndex });
-      await updateDoc(doc(db, 'vendors', selectedVendor.id, 'handling_items', row2.id), { order: rowIndex });
-    } catch (error) {
-      console.error("Error moving row:", error);
-    }
-  };
-
-  const deleteComparisonRow = async (id: string) => {
-    if (!selectedVendor) return;
-    if (window.confirm('항목을 삭제하시겠습니까?')) {
-      try {
-        await deleteDoc(doc(db, 'vendors', selectedVendor.id, 'handling_items', id));
-      } catch (error) {
-        console.error("Error deleting comparison row:", error);
-      }
     }
   };
 
@@ -1764,9 +1769,19 @@ export default function App() {
                     url.searchParams.delete('v');
                     window.history.replaceState({}, '', url);
                   }}
-                  className={`text-sm font-medium transition-colors ${viewMode === 'detail' && !isDeepLinkMode ? 'text-indigo-600 font-bold' : 'text-slate-600 hover:text-indigo-600'}`}
+                  className={`text-sm font-medium transition-colors ${viewMode === 'detail' && !isDeepLinkMode ? 'text-indigo-600 font-bold underline underline-offset-8' : 'text-slate-600 hover:text-indigo-600'}`}
                 >
-                  거래처
+                  거래처별 단가표
+                </button>
+                <button 
+                  onClick={() => {
+                    setViewMode('matrix');
+                    setIsDeepLinkMode(false);
+                    setSelectedVendor(null);
+                  }}
+                  className={`text-sm font-medium transition-colors ${viewMode === 'matrix' ? 'text-indigo-600 font-bold underline underline-offset-8' : 'text-slate-600 hover:text-indigo-600'}`}
+                >
+                  단가 통합 비교
                 </button>
                 {selectedVendor && (
                   <div className="flex items-center gap-2 ml-4">
@@ -1825,38 +1840,41 @@ export default function App() {
                     {sortedVendors.length}
                   </span>
                 </h2>
-                {isAdminMode && (
-                  <div className="flex items-center gap-1">
-                    <button 
-                      onClick={() => setVendorSortMode(prev => prev === 'name' ? 'manual' : 'name')}
-                      className={`p-1.5 rounded-md transition-colors ${vendorSortMode === 'name' ? 'text-indigo-600 bg-indigo-50' : 'text-slate-400 hover:bg-slate-200'}`}
-                      title={vendorSortMode === 'name' ? "기본 순서로 정렬" : "가나다순 정렬"}
-                    >
-                      <ArrowUpDown className="h-4 w-4" />
-                    </button>
-                    <button 
-                      onClick={() => setIsViewingDeletedVendors(true)}
-                      className="p-1.5 hover:bg-slate-200 rounded-md transition-colors text-slate-400 hover:text-amber-600"
-                      title="삭제된 업체 복구"
-                    >
-                      <History className="h-4 w-4" />
-                    </button>
-                    <button 
-                      onClick={handleBackupAllData}
-                      className="p-1.5 hover:bg-slate-200 rounded-md transition-colors text-slate-400 hover:text-indigo-600"
-                      title="전체 데이터 엑셀 백업"
-                    >
-                      <Download className="h-4 w-4" />
-                    </button>
-                    <button 
-                      onClick={() => setIsAddingVendor(true)}
-                      className="p-1.5 hover:bg-slate-200 rounded-md transition-colors"
-                      id="add-vendor-btn"
-                    >
-                      <Plus className="h-4 w-4 text-slate-600" />
-                    </button>
-                  </div>
-                )}
+                <div className="flex items-center gap-1">
+                  {isAdminMode && (
+                    <div className="flex items-center gap-1 mr-1 border-r border-slate-200 pr-1">
+                      <button 
+                        onClick={() => setIsViewingDeletedVendors(true)}
+                        className="p-1.5 hover:bg-slate-200 rounded-md transition-colors text-slate-400 hover:text-amber-600"
+                        title="삭제된 업체 복구"
+                      >
+                        <History className="h-4 w-4" />
+                      </button>
+                      <button 
+                        onClick={handleBackupAllData}
+                        className="p-1.5 hover:bg-slate-200 rounded-md transition-colors text-slate-400 hover:text-indigo-600"
+                        title="전체 데이터 엑셀 백업"
+                      >
+                        <Download className="h-4 w-4" />
+                      </button>
+                      <button 
+                        onClick={() => setIsAddingVendor(true)}
+                        className="p-1.5 hover:bg-slate-200 rounded-md transition-colors text-slate-600"
+                        id="add-vendor-btn"
+                      >
+                        <Plus className="h-4 w-4" />
+                      </button>
+                    </div>
+                  )}
+                  <select 
+                    value={vendorSortMode}
+                    onChange={(e) => setVendorSortMode(e.target.value as 'name' | 'manual')}
+                    className="text-[10px] font-bold bg-white border border-slate-200 rounded px-1 py-0.5 outline-none focus:border-indigo-500"
+                  >
+                    <option value="name">가나다순</option>
+                    <option value="manual">사용자 지정</option>
+                  </select>
+                </div>
               </div>
               <div className="relative group">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 group-focus-within:text-indigo-500 transition-colors" />
@@ -1878,51 +1896,119 @@ export default function App() {
               </div>
             </div>
             <div className="flex-1 overflow-y-auto px-2 py-4 space-y-0.5" id="vendor-list-container">
-              {sortedVendors.map((vendor, index) => (
-                <div
-                  key={vendor.id}
-                  id={`vendor-btn-${vendor.id}`}
-                  onClick={() => {
-                    setSelectedVendor(vendor);
-                    setViewMode('detail');
+              {vendorSortMode === 'manual' && !vendorSearchTerm && isAdminMode ? (
+                <Reorder.Group 
+                  axis="y" 
+                  values={sortedVendors} 
+                  onReorder={async (newOrder) => {
+                    // Update order in Firestore
+                    const batch = writeBatch(db);
+                    newOrder.forEach((vendor, index) => {
+                      const vRef = doc(db, 'vendors', vendor.id);
+                      batch.update(vRef, { order: index });
+                    });
+                    try {
+                      await batch.commit();
+                    } catch (e) {
+                      console.error("Error saving new vendor order:", e);
+                    }
                   }}
-                  className={`w-full cursor-pointer text-left px-4 py-2.5 rounded-lg text-sm font-medium transition-all flex items-center justify-between group ${
-                    selectedVendor?.id === vendor.id 
-                    ? 'bg-indigo-50 text-indigo-700' 
-                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-                  }`}
+                  className="space-y-0.5"
                 >
-                  <div className="flex items-center gap-2 truncate">
-                    <span className="text-[10px] font-mono text-slate-400 w-4 tabular-nums shrink-0">{index + 1}</span>
-                    <span className="truncate">{vendor.name}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {isAdminMode && (
-                      <div className="flex items-center gap-0.5">
-                        {vendorSortMode === 'manual' && (
-                          <>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                moveVendor(index, 'up');
-                              }}
-                              disabled={index === 0}
-                              className="p-1 text-slate-400 hover:bg-slate-100 hover:text-indigo-600 rounded disabled:opacity-30"
-                            >
-                              <ChevronUp className="h-3 w-3" />
-                            </button>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                moveVendor(index, 'down');
-                              }}
-                              disabled={index === sortedVendors.length - 1}
-                              className="p-1 text-slate-400 hover:bg-slate-100 hover:text-indigo-600 rounded disabled:opacity-30"
-                            >
-                              <ChevronDown className="h-3 w-3" />
-                            </button>
-                          </>
+                  {sortedVendors.map((vendor, index) => (
+                    <Reorder.Item
+                      key={`reorder-${vendor.id}`}
+                      value={vendor}
+                      id={`vendor-btn-${vendor.id}`}
+                      onClick={() => {
+                        if (viewMode === 'matrix') {
+                          setMatrixVendorIds(prev => {
+                            const next = new Set(prev);
+                            if (next.has(vendor.id)) next.delete(vendor.id);
+                            else next.add(vendor.id);
+                            return next;
+                          });
+                        } else {
+                          setSelectedVendor(vendor);
+                          setViewMode('detail');
+                        }
+                      }}
+                      className={`w-full cursor-pointer text-left px-4 py-2.5 rounded-lg text-sm font-medium transition-all flex items-center justify-between group ${
+                        (viewMode === 'matrix' ? matrixVendorIds.has(vendor.id) : selectedVendor?.id === vendor.id)
+                        ? 'bg-indigo-50 text-indigo-700' 
+                        : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 truncate">
+                        <GripVertical className="h-3.5 w-3.5 text-slate-300 group-hover:text-slate-400 shrink-0" />
+                        {viewMode === 'matrix' && (
+                          <div className={`w-4 h-4 rounded border flex items-center justify-center transition-all ${
+                            matrixVendorIds.has(vendor.id) 
+                              ? 'bg-indigo-600 border-indigo-600 shadow-sm' 
+                              : 'bg-white border-slate-300'
+                          }`}>
+                            {matrixVendorIds.has(vendor.id) && (
+                              <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={4}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                              </svg>
+                            )}
+                          </div>
                         )}
+                        <span className="text-[10px] font-mono text-slate-400 w-4 tabular-nums shrink-0">{index + 1}</span>
+                        <span className="truncate">{vendor.name}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {isAdminMode && (
+                          <button
+                            onClick={(e) => deleteVendor(vendor.id, e)}
+                            className="opacity-0 group-hover:opacity-100 p-1 hover:bg-rose-100 hover:text-rose-600 rounded transition-all"
+                            title="업체 삭제"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                        {selectedVendor?.id === vendor.id && (
+                          <div className="w-1.5 h-1.5 rounded-full bg-indigo-600" />
+                        )}
+                      </div>
+                    </Reorder.Item>
+                  ))}
+                </Reorder.Group>
+              ) : (
+                sortedVendors.map((vendor, index) => (
+                  <div
+                    key={`vendor-list-${vendor.id}`}
+                    id={`vendor-btn-${vendor.id}`}
+                    onClick={() => {
+                      if (viewMode === 'matrix') {
+                        setMatrixVendorIds(prev => {
+                          const next = new Set(prev);
+                          if (next.has(vendor.id)) next.delete(vendor.id);
+                          else next.add(vendor.id);
+                          return next;
+                        });
+                      } else {
+                        setSelectedVendor(vendor);
+                        setViewMode('detail');
+                      }
+                    }}
+                    className={`w-full cursor-pointer text-left px-4 py-2.5 rounded-lg text-sm font-medium transition-all flex items-center justify-between group ${
+                      (viewMode === 'matrix' ? matrixVendorIds.has(vendor.id) : selectedVendor?.id === vendor.id)
+                      ? 'bg-indigo-50 text-indigo-700' 
+                      : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 truncate">
+                      {viewMode === 'matrix' && (
+                        <div className={`w-3.5 h-3.5 rounded border border-slate-300 flex items-center justify-center transition-all ${matrixVendorIds.has(vendor.id) ? 'bg-indigo-600 border-indigo-600' : 'bg-white'}`}>
+                          {matrixVendorIds.has(vendor.id) && <div className="w-1.5 h-1.5 bg-white rounded-full scale-50" />}
+                        </div>
+                      )}
+                      <span className="text-[10px] font-mono text-slate-400 w-4 tabular-nums shrink-0">{index + 1}</span>
+                      <span className="truncate">{vendor.name}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {isAdminMode && (
                         <button
                           onClick={(e) => deleteVendor(vendor.id, e)}
                           className="opacity-0 group-hover:opacity-100 p-1 hover:bg-rose-100 hover:text-rose-600 rounded transition-all"
@@ -1930,14 +2016,14 @@ export default function App() {
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </button>
-                      </div>
-                    )}
-                    {selectedVendor?.id === vendor.id && (
-                      <div className="w-1.5 h-1.5 rounded-full bg-indigo-600" />
-                    )}
+                      )}
+                      {selectedVendor?.id === vendor.id && (
+                        <div className="w-1.5 h-1.5 rounded-full bg-indigo-600" />
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </aside>
         )}
@@ -1946,97 +2032,179 @@ export default function App() {
         <main className="flex-1 flex flex-col overflow-hidden bg-[#F8F9FA]" id="main-content-view">
           {viewMode === 'matrix' ? (
             <div className="flex-1 flex flex-col overflow-hidden bg-white">
-               <header className="px-8 py-6 border-b border-slate-100 shrink-0">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h1 className="text-xl font-bold text-slate-900 tracking-tight">단가 비교 매트릭스</h1>
-                      <p className="text-[11px] text-slate-400 font-medium tracking-tight">업체별 취급 품목 및 단가 현황을 한눈에 비교합니다.</p>
-                    </div>
-                  </div>
-               </header>
-               <div className="flex-1 overflow-auto p-6 bg-slate-50/30">
-                  <div className="border border-slate-200 rounded-xl overflow-hidden shadow-sm bg-white">
-                    <table className="w-full text-xs border-collapse font-medium">
-                      <thead className="bg-slate-900 text-white">
-                        <tr className="h-10">
-                          <th className="px-6 text-left font-bold border-r border-slate-800">구분 품명</th>
-                          <th className="px-6 text-center font-bold border-r border-slate-800">동양파이프</th>
-                          <th className="px-6 text-center font-bold border-r border-slate-800">명인시스템</th>
-                          <th className="px-6 text-center font-bold border-r border-slate-800">하나산업</th>
-                          <th className="px-6 text-center font-bold">건우기업</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {comparisonRows.map((row) => (
-                          <tr key={row.id} className="hover:bg-slate-50 transition-colors h-10">
-                            <td className="px-6 font-bold text-slate-900 border-r border-slate-50 bg-slate-50/30">{row.category}</td>
-                            <td className="px-6 text-center text-slate-500 border-r border-slate-50">{row.vendor1 || '-'}</td>
-                            <td className="px-6 text-center text-slate-500 border-r border-slate-50">{row.vendor2 || '-'}</td>
-                            <td className="px-6 text-center text-slate-500 border-r border-slate-50">{row.vendor3 || '-'}</td>
-                            <td className="px-6 text-center text-slate-500">{row.vendor4 || '-'}</td>
-                          </tr>
+                <header className="px-8 py-4 border-b border-slate-100 shrink-0 bg-white">
+                   <div className="flex flex-col gap-4">
+                     <div className="flex items-center justify-between">
+                       <div>
+                         <h1 className="text-xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
+                           <ArrowLeftRight className="h-5 w-5 text-indigo-600" />
+                           단가 통합 비교 매트릭스
+                         </h1>
+                         <p className="text-[11px] text-slate-400 font-medium tracking-tight mt-1">업체별 동일 품명/규격 상품의 단가를 한눈에 비교합니다.</p>
+                       </div>
+                       <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-bold text-slate-400 bg-slate-50 px-2 py-1 rounded border border-slate-100">
+                             총 {matrixData.length}개 품목</span>{matrixVendorIds.size > 0 && <div className="flex items-center gap-2 ml-3"><button onClick={() => { setMatrixVendorIds(new Set()); setShowOnlySelectedVendors(false); }} className="text-[10px] font-bold text-slate-400 hover:text-red-500 bg-white px-2 py-0.5 rounded border border-slate-100 cursor-pointer">초기화({matrixVendorIds.size})</button><button onClick={() => setShowOnlySelectedVendors(!showOnlySelectedVendors)} className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border cursor-pointer ${showOnlySelectedVendors ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-slate-200 text-slate-600'}`}>{showOnlySelectedVendors ? '전체' : '비교'}</button></div>}<span>
+                          </span>
+                       </div>
+                     </div>
+                     
+                     <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
+                        {matrixCategories.map(cat => (
+                          <button
+                            key={`matrix-cat-${cat}`}
+                            onClick={() => setMatrixCategory(cat)}
+                            className={`px-3 py-1 rounded-full text-xs font-bold transition-all whitespace-nowrap ${
+                              matrixCategory === cat
+                                ? 'bg-indigo-600 text-white shadow-md'
+                                : 'bg-slate-50 text-slate-500 hover:bg-slate-100'
+                            }`}
+                          >
+                            {cat}
+                          </button>
                         ))}
-                      </tbody>
-                    </table>
-                  </div>
-               </div>
+                     </div>
+                   </div>
+                </header>
+                
+                <div className="flex-1 overflow-auto p-6 bg-slate-50/30">
+                   {isMatrixLoading ? (
+                     <div className="h-full flex flex-col items-center justify-center gap-4 text-slate-400">
+                        <Loader2 className="h-8 w-8 animate-spin" />
+                        <p className="text-sm font-bold">전체 업체 단가 정보를 불러오는 중...</p>
+                     </div>
+                   ) : matrixData.length === 0 ? (
+                     <div className="h-full flex flex-col items-center justify-center gap-4 text-slate-300">
+                        <Search className="h-12 w-12 opacity-20" />
+                        <p className="text-sm font-bold opacity-40">비교할 데이터가 없습니다. (검색어 또는 카테고리를 확인해주세요)</p>
+                     </div>
+                   ) : (
+                     <div className="border border-slate-200 rounded-2xl overflow-hidden shadow-xl bg-white">
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-[11px] border-collapse font-medium min-w-[2000px]">
+                            <thead className="bg-slate-900 text-white sticky top-0 z-20">
+                              <tr className="h-12">
+                                <th className="px-6 text-left font-bold border-r border-slate-800 sticky left-0 bg-slate-900 z-30" style={{ width: '250px' }}>구분 품명</th>
+                                <th className="px-4 text-left font-bold border-r border-slate-800" style={{ width: '150px' }}>규격</th>
+                                <th className="px-3 text-center font-bold border-r border-slate-800" style={{ width: '80px' }}>단위</th>
+                                {filteredVendors.map(vendor => (
+                                  <th key={`matrix-header-th-${vendor.id}`} className="px-4 text-center font-bold border-r border-slate-800 bg-slate-800/50 min-w-[120px]">
+                                    {vendor.name}
+                                  </th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                              {matrixData.map((row, idx) => {
+                                // Find min price for highlighting
+                                const priceValues = Object.values(row.prices) as number[];
+                                const minPrice = priceValues.length > 0 ? Math.min(...priceValues) : null;
+                                
+                                return (
+                                  <tr key={`matrix-row-${idx}`} className="hover:bg-indigo-50/30 transition-colors h-10 group">
+                                    <td className="px-6 font-bold text-slate-800 border-r border-slate-100 sticky left-0 bg-white group-hover:bg-indigo-50/50 z-10 transition-colors shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
+                                      <div className="flex items-center justify-between">
+                                        <div className="flex flex-col truncate">
+                                          <span className="text-[10px] text-indigo-400 font-bold uppercase tracking-widest">{row.category}</span>
+                                          <span className="truncate">{row.itemName}</span>
+                                        </div>
+                                        <button 
+                                          onClick={() => setSelectedMatrixRow(row)}
+                                          className="p-1.5 text-slate-300 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                                          title="단가 비교 차트 보기"
+                                        >
+                                          <BarChart3 className="h-3.5 w-3.5" />
+                                        </button>
+                                      </div>
+                                    </td>
+                                    <td className="px-4 text-slate-500 font-bold border-r border-slate-100 truncate">{row.spec}</td>
+                                    <td className="px-3 text-center text-slate-400 border-r border-slate-100">{row.unit}</td>
+                                    {filteredVendors.map(vendor => {
+                                      const priceValue = row.prices[vendor.id];
+                                      const isMin = priceValue && minPrice && priceValue === minPrice && priceValues.length > 1;
+                                      
+                                      return (
+                                        <td 
+                                          key={`matrix-body-price-${row.itemName}-${row.spec || 'ns'}-${vendor.id}`} 
+                                          className={`px-4 text-center border-r border-slate-100 font-mono transition-all ${
+                                            isMin ? 'bg-emerald-50 text-emerald-700 font-black' : 'text-slate-600'
+                                          }`}
+                                        >
+                                          {priceValue ? (
+                                            <div className="flex flex-col items-center">
+                                              <span>₩{Number(priceValue).toLocaleString()}</span>
+                                              {isMin && <span className="text-[8px] uppercase tracking-tighter bg-emerald-100 px-1 rounded mt-0.5">BEST</span>}
+                                            </div>
+                                          ) : (
+                                            <span className="text-slate-200">데이터 없음</span>
+                                          )}
+                                        </td>
+                                      );
+                                    })}
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                     </div>
+                   )}
+                </div>
             </div>
           ) : selectedVendor ? (
             <>
               {/* VENDOR INFO HEADER */}
-              <div className="bg-white border-b border-slate-200 px-8 py-6 shrink-0 relative overflow-hidden">
-                <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 relative z-10">
-                  <div className="space-y-4">
+              <div className="bg-white border-b border-slate-200 px-6 py-4 shrink-0 relative overflow-hidden">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 relative z-10">
+                  <div className="flex flex-col gap-3">
                     <div className="flex items-center gap-3">
-                      <div className="bg-indigo-600 text-white p-2.5 rounded-xl shadow-lg shadow-indigo-100">
-                        <Building2 className="h-6 w-6" />
+                      <div className="bg-indigo-600 text-white p-2 rounded-xl shadow-lg shadow-indigo-100 shrink-0">
+                        <Building2 className="h-5 w-5" />
                       </div>
-                      <div>
-                        <div className="flex items-center gap-3">
-                          <h1 className="text-2xl font-black text-slate-900 tracking-tight">{selectedVendor.name}</h1>
-                          <button 
-                            onClick={(e) => copyVendorLink(selectedVendor.id, e)}
-                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider transition-all border ${
-                              copySuccess 
-                              ? 'bg-emerald-50 border-emerald-200 text-emerald-600' 
-                              : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-white hover:border-indigo-400 hover:text-indigo-600'
-                            }`}
-                          >
-                            <LinkIcon className="h-3 w-3" />
-                            {copySuccess ? '복사됨!' : '접속 링크 복사'}
-                          </button>
+                      <div className="flex items-center gap-3 flex-wrap">
+                        <h1 className="text-xl font-black text-slate-900 tracking-tight">{selectedVendor.name}</h1>
+                        <button 
+                          onClick={(e) => copyVendorLink(selectedVendor.id, e)}
+                          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-wider transition-all border ${
+                            copySuccess 
+                            ? 'bg-emerald-50 border-emerald-200 text-emerald-600' 
+                            : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-white hover:border-indigo-400 hover:text-indigo-600'
+                          }`}
+                        >
+                          <LinkIcon className="h-2.5 w-2.5" />
+                          {copySuccess ? '복사됨!' : '링크 복사'}
+                        </button>
+                        <div className="text-[10px] text-slate-400 font-bold bg-slate-50 px-2 py-0.5 rounded border border-slate-100">
+                          V-ID: {selectedVendor.id.slice(0, 8)}
                         </div>
-                        <div className="text-xs text-slate-400 font-bold mt-1 tracking-tight flex items-center flex-wrap">
-                          V-ID: {selectedVendor.id.slice(0, 8)} | 실시간 단가 관리 시스템
-                          {isAdminMode && (
-                            <div className="ml-3 inline-flex items-center gap-2">
-                              {showVendorPasswords[selectedVendor.id] ? (
-                                <span className="text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100 font-mono flex items-center gap-2">
-                                  <Lock className="h-3 w-3" />
-                                  PW: <span className="font-black">{selectedVendor.password}</span>
-                                  <button 
-                                    onClick={() => setShowVendorPasswords(prev => ({ ...prev, [selectedVendor.id]: false }))}
-                                    className="ml-1 text-[10px] text-slate-400 hover:text-slate-600"
-                                  >
-                                    숨기기
-                                  </button>
-                                </span>
-                              ) : (
+                        {isAdminMode && (
+                          <div className="inline-flex items-center gap-2">
+                            {showVendorPasswords[selectedVendor.id] ? (
+                              <span className="text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100 font-mono text-[10px] flex items-center gap-1.5">
+                                <Lock className="h-2.5 w-2.5" />
+                                <span className="font-black">{selectedVendor.password}</span>
                                 <button 
-                                  onClick={() => setShowVendorPasswords(prev => ({ ...prev, [selectedVendor.id]: true }))}
-                                  className="text-[10px] bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded border border-indigo-100 hover:bg-indigo-100 transition-colors flex items-center gap-1"
+                                  onClick={() => setShowVendorPasswords(prev => ({ ...prev, [selectedVendor.id]: false }))}
+                                  className="text-[9px] text-slate-400 hover:text-slate-600 underline"
                                 >
-                                  <Unlock className="h-3 w-3" />
-                                  비밀번호 보기
+                                  숨기기
                                 </button>
-                              )}
-                            </div>
-                          )}
-                        </div>
+                              </span>
+                            ) : (
+                              <button 
+                                onClick={() => setShowVendorPasswords(prev => ({ ...prev, [selectedVendor.id]: true }))}
+                                className="text-[9px] bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded border border-indigo-100 hover:bg-indigo-100 transition-colors flex items-center gap-1"
+                              >
+                                <Unlock className="h-2.5 w-2.5" />
+                                비밀번호 보기
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pt-1.5 border-t border-slate-100">
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-slate-50 pt-2">
                       {[
                         { label: '대표자', value: selectedVendor.representative },
                         { label: '전화', value: selectedVendor.phone },
@@ -2044,12 +2212,12 @@ export default function App() {
                         { label: '사업자번호', value: selectedVendor.businessNumber },
                         { label: '이메일', value: selectedVendor.email }
                       ].map((item, idx) => (
-                        <div key={idx} className="flex items-center gap-2">
-                          <span className="text-[9px] font-black text-slate-400 uppercase tracking-tight">{item.label}</span>
+                        <div key={`vendor-info-${item.label}`} className="flex items-center gap-1.5">
+                          <span className="text-[9px] font-black text-slate-400/80 uppercase tracking-tighter">{item.label}</span>
                           <span className={`text-[11px] font-bold ${item.label === '이메일' ? 'text-indigo-600' : 'text-slate-600'}`}>
                             {item.value || '-'}
                           </span>
-                          {idx < 4 && <div className="h-2 w-[1px] bg-slate-200 ml-2" />}
+                          {idx < 4 && <div className="h-2 w-[1px] bg-slate-200 ml-1.5" />}
                         </div>
                       ))}
                     </div>
@@ -2333,8 +2501,8 @@ export default function App() {
                   <div className="w-1 h-3.5 bg-indigo-500 rounded-full" />
                   <span className="text-[11px] font-black text-slate-800 tracking-tight">취급품목</span>
                 </div>
-                {['전체', ...categories].map(cat => (
-                  <div key={cat} className="relative group/cat">
+                {['전체', ...categories.filter(c => c !== '전체')].map(cat => (
+                  <div key={`cat-tab-${cat}`} className="relative group/cat">
                     <button
                       onClick={() => setActiveCategory(cat)}
                       className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-1.5 ${
@@ -2437,7 +2605,10 @@ export default function App() {
                           className="w-3.5 h-3.5 rounded border-slate-300 text-indigo-600 ring-offset-0 focus:ring-0 cursor-pointer"
                         />
                       </th>
-                      <th className="px-4 text-left font-semibold relative border-r border-slate-50 group/th" style={{ width: columnWidths.itemCode }}>
+                      <th className="w-10 px-4 text-center relative border-r border-slate-50">
+                        <Scale className="h-3.5 w-3.5 mx-auto" />
+                      </th>
+                      <th className="px-4 text-left font-semibold relative border-r border-slate-50 group/th cursor-pointer hover:bg-slate-50 transition-colors" style={{ width: columnWidths.itemCode }}>
                         품번
                         <div 
                           onMouseDown={(e) => startResize(e, 'itemCode')}
@@ -2554,7 +2725,7 @@ export default function App() {
                       const discount = item.negoType === 'sts_pipe' ? 0 : item.costPrice * (item.negoRate / 100);
                       return (
                         <tr 
-                          key={item.id} 
+                          key={`price-row-${item.id}`} 
                           className={`hover:bg-indigo-50/20 group transition-colors h-[34px] ${selectedPriceIds.has(item.id) ? 'bg-indigo-50/10' : ''}`}
                         >
                           <td className="px-4 text-center">
@@ -2564,6 +2735,19 @@ export default function App() {
                               onChange={() => toggleSelectItem(item.id)}
                               className="w-3.5 h-3.5 rounded border-slate-300 text-indigo-600 cursor-pointer"
                             />
+                          </td>
+                          <td className="px-4 text-center">
+                            <button
+                              onClick={() => toggleComparison(item)}
+                              className={`p-1.5 rounded-lg transition-colors ${
+                                comparisonItems.find(i => i.id === item.id && i.vendorId === (item.vendorId || selectedVendor?.id))
+                                  ? 'bg-rose-500 text-white shadow-sm shadow-rose-200'
+                                  : 'text-slate-300 hover:bg-slate-100 hover:text-slate-600'
+                              }`}
+                              title={comparisonItems.find(i => i.id === item.id && i.vendorId === (item.vendorId || selectedVendor?.id)) ? '비교 목록에서 제거' : '비교 목록에 추가 (최대 4개)'}
+                            >
+                              <ArrowLeftRight className="h-3 w-3" />
+                            </button>
                           </td>
                           <td className="px-4 text-slate-400 font-mono text-[10px] leading-none">{item.itemCode || `DP-${String(idx+1).padStart(3, '0')}`}</td>
                           <td className="px-4 font-bold text-slate-800 truncate relative">
@@ -2841,19 +3025,79 @@ export default function App() {
           </Modal>
         )}
 
-        {isAddingComparisonRow && (
-          <Modal key="modal-add-comparison" title="취급 품목 구분 추가" onClose={() => setIsAddingComparisonRow(false)}>
-            <form onSubmit={handleAddComparisonRow} className="space-y-6">
-              <div className="space-y-2">
-                <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">구분 품명 *</label>
-                <input name="category" required placeholder="예) 강관, 밸브, 피팅 등" className="w-full rounded-2xl border-2 border-slate-100 bg-slate-50 p-4 font-bold text-slate-800 focus:border-indigo-500 focus:bg-white focus:outline-none transition-all" />
+        {selectedMatrixRow && (
+          <Modal 
+            key="modal-price-chart" 
+            title={`${selectedMatrixRow.itemName} 단가 비교 차트`} 
+            onClose={() => setSelectedMatrixRow(null)}
+            maxWidth="max-w-4xl"
+          >
+            <div className="p-4 bg-white rounded-xl">
+              <div className="mb-8 flex flex-col gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-black bg-indigo-100 text-indigo-700 px-2 py-1 rounded uppercase tracking-[0.2em]">{selectedMatrixRow.category}</span>
+                  <span className="text-xl font-black text-slate-800 tracking-tight">{selectedMatrixRow.itemName}</span>
+                </div>
+                <p className="text-xs font-bold text-slate-400">규격: {selectedMatrixRow.spec} | 단위: {selectedMatrixRow.unit}</p>
               </div>
-              <div className="pt-4">
-                <button type="submit" className="w-full rounded-3xl bg-indigo-600 py-4 text-white font-black hover:bg-slate-900 transition-all shadow-xl shadow-indigo-100">
-                  구분 항목 저장
+              
+              <div className="h-[400px] w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={chartData} margin={{ top: 20, right: 30, left: 40, bottom: 80 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    <XAxis 
+                      dataKey="name" 
+                      angle={-45} 
+                      textAnchor="end" 
+                      interval={0} 
+                      height={80} 
+                      tick={{ fontSize: 10, fontWeight: 900, fill: '#64748b' }}
+                      axisLine={{ stroke: '#f1f5f9' }}
+                    />
+                    <YAxis 
+                      tick={{ fontSize: 10, fontWeight: 900, fill: '#64748b' }}
+                      tickFormatter={(value) => `₩${value.toLocaleString()}`}
+                      axisLine={{ stroke: '#f1f5f9' }}
+                    />
+                    <RechartsTooltip 
+                      cursor={{ fill: '#f8fafc' }}
+                      content={({ active, payload }) => {
+                        if (active && payload && payload.length) {
+                          return (
+                            <div className="bg-slate-900 text-white p-4 shadow-2xl rounded-2xl border border-slate-800 backdrop-blur-sm bg-opacity-95">
+                              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 border-b border-slate-800 pb-2">{payload[0].payload.name}</p>
+                              <div className="flex items-baseline gap-1">
+                                <span className="text-lg font-black text-indigo-400">₩</span>
+                                <span className="text-xl font-black">{Number(payload[0].value).toLocaleString()}</span>
+                              </div>
+                            </div>
+                          );
+                        }
+                        return null;
+                      }}
+                    />
+                    <Bar dataKey="price" radius={[8, 8, 0, 0]} barSize={50} animationDuration={1500} animationEasing="ease-out">
+                      {chartData.map((entry: any, index: number) => (
+                        <Cell 
+                          key={`cell-${index}`} 
+                          fill={index === 0 ? '#10b981' : '#6366f1'} 
+                          fillOpacity={0.9}
+                        />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+
+              <div className="mt-10 flex justify-end">
+                <button 
+                  onClick={() => setSelectedMatrixRow(null)}
+                  className="px-8 py-3 bg-slate-900 text-white text-xs font-black uppercase tracking-widest rounded-2xl hover:bg-slate-800 hover:shadow-xl transition-all"
+                >
+                  차트 닫기
                 </button>
               </div>
-            </form>
+            </div>
           </Modal>
         )}
 
@@ -2962,8 +3206,8 @@ export default function App() {
                       className="w-full rounded-2xl border-2 border-slate-100 bg-slate-50 p-4 font-bold text-slate-800 focus:border-indigo-500 focus:bg-white focus:outline-none transition-all outline-none appearance-none"
                     >
                       <option value="">카테고리 선택</option>
-                      {categories.map(cat => (
-                        <option key={cat} value={cat}>{cat}</option>
+                      {categories.filter(c => c !== '전체').map(cat => (
+                        <option key={`opt-add-item-${cat}`} value={cat}>{cat}</option>
                       ))}
                     </select>
                   </div>
@@ -3628,7 +3872,7 @@ export default function App() {
                        <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">카테고리</label>
                        <select name="category" defaultValue={item.category} className="w-full rounded-xl border-2 border-slate-100 bg-slate-50 p-4 font-bold focus:border-indigo-500 outline-none appearance-none">
                          <option value="">선택 안함</option>
-                         {categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                         {categories.filter(c => c !== '전체').map(cat => <option key={`opt-edit-item-${cat}`} value={cat}>{cat}</option>)}
                        </select>
                     </div>
                     <div className="space-y-2">
@@ -3736,6 +3980,7 @@ export default function App() {
         {/* Approvals Modal */}
         {isApprovalsModalOpen && (
           <Modal 
+            key="modal-approvals-queue"
             title="상세 수정 승인 대기 목록" 
             onClose={() => setIsApprovalsModalOpen(false)}
             maxWidth="max-w-4xl"
@@ -3849,6 +4094,190 @@ export default function App() {
             <span className="text-sm font-bold">링크가 클립보드에 복사되었습니다!</span>
           </motion.div>
         )}
+
+        {/* FLOATING COMPARISON BAR */}
+        {comparisonItems.length > 0 && (
+          <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[60]">
+            <motion.div 
+              initial={{ y: 50, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              className="bg-slate-900/90 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl p-2 px-4 pr-2 flex items-center gap-4 text-white"
+            >
+              <div className="flex -space-x-3">
+                {comparisonItems.map((item) => (
+                  <div key={`${item.vendorId}_${item.id}`} className="w-10 h-10 rounded-xl border-2 border-slate-900 bg-indigo-500/20 backdrop-blur flex items-center justify-center text-[10px] font-black overflow-hidden ring-1 ring-white/10 uppercase">
+                    {item.vendorName ? item.vendorName.substring(0, 2) : '?'}
+                  </div>
+                ))}
+              </div>
+              <div className="flex flex-col">
+                <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Comparison Room</span>
+                <span className="text-xs font-bold text-indigo-300">{comparisonItems.length}/4 selected</span>
+              </div>
+              <button 
+                onClick={() => setIsComparisonModalOpen(true)}
+                className="bg-indigo-500 hover:bg-indigo-400 text-white font-black px-6 py-3 rounded-xl transition-all shadow-lg shadow-indigo-500/20 text-xs"
+              >
+                비교하기
+              </button>
+              <button 
+                onClick={() => setComparisonItems([])}
+                className="p-3 text-slate-400 hover:text-white transition-colors"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </motion.div>
+          </div>
+        )}
+
+        {/* COMPARISON MODAL */}
+        <AnimatePresence>
+          {isComparisonModalOpen && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 md:p-12 text-slate-800">
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setIsComparisonModalOpen(false)}
+                className="absolute inset-0 bg-slate-950/80 backdrop-blur-md"
+              />
+              <motion.div 
+                initial={{ scale: 0.95, opacity: 0, y: 20 }}
+                animate={{ scale: 1, opacity: 1, y: 0 }}
+                exit={{ scale: 0.95, opacity: 0, y: 20 }}
+                className="relative w-full max-w-7xl max-h-[90vh] bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col"
+              >
+                <div className="p-8 border-b border-slate-100 flex items-center justify-between shrink-0">
+                  <div>
+                    <h2 className="text-2xl font-black text-slate-900 tracking-tight">품목 비교표 (Table Comparison)</h2>
+                    <p className="text-sm text-slate-400 font-medium mt-1">선택한 최대 4개의 품목을 한눈에 비교합니다.</p>
+                  </div>
+                  <button 
+                    onClick={() => setIsComparisonModalOpen(false)}
+                    className="p-4 rounded-2xl bg-slate-50 text-slate-400 hover:bg-slate-100 hover:text-slate-900 transition-all font-bold"
+                  >
+                    <X className="h-6 w-6" />
+                  </button>
+                </div>
+
+                <div className="flex-1 overflow-auto p-4 md:p-8">
+                  <div className="border border-slate-200 rounded-3xl overflow-hidden shadow-xl bg-white">
+                    <table className="w-full text-sm border-collapse font-medium">
+                      <thead className="bg-slate-900 text-white">
+                        <tr className="h-14">
+                          <th className="px-6 text-left font-black text-[10px] uppercase tracking-[0.2em] bg-slate-800 border-r border-slate-700 w-48">구분 / 속성</th>
+                          {comparisonItems.map((item) => (
+                            <th key={`comp-head-${item.vendorId}-${item.id}`} className="px-6 text-center border-r border-slate-700 min-w-[200px]">
+                              <div className="flex flex-col items-center gap-1">
+                                <span className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">{item.vendorName}</span>
+                                <span className="text-sm font-black tracking-tight line-clamp-1">{item.itemName}</span>
+                              </div>
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        <tr className="h-12 bg-slate-50/50">
+                          <td className="px-6 font-bold text-slate-500 border-r border-slate-100 bg-slate-50">카테고리</td>
+                          {comparisonItems.map((item) => (
+                            <td key={`comp-cat-${item.vendorId}-${item.id}`} className="px-6 text-center border-r border-slate-100 text-xs font-bold text-slate-700">{item.category || '-'}</td>
+                          ))}
+                        </tr>
+                        <tr className="h-12">
+                          <td className="px-6 font-bold text-slate-500 border-r border-slate-100 bg-slate-50">규격 (단위)</td>
+                          {comparisonItems.map((item) => (
+                            <td key={`comp-spec-${item.vendorId}-${item.id}`} className="px-6 text-center border-r border-slate-100 font-bold text-slate-700">
+                              {item.spec || '-'} <span className="text-slate-400">({item.unit || '-'})</span>
+                            </td>
+                          ))}
+                        </tr>
+                        <tr className="h-12">
+                          <td className="px-6 font-bold text-slate-500 border-r border-slate-100 bg-slate-50">협가 / 네고율</td>
+                          {comparisonItems.map((item) => (
+                            <td key={`comp-cost-${item.vendorId}-${item.id}`} className="px-6 text-center border-r border-slate-100 font-mono">
+                              <span className="font-bold">₩{(item.costPrice || 0).toLocaleString()}</span>
+                              <span className="ml-2 text-[10px] font-black text-rose-500 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-100">
+                                {item.negoType === 'sts_pipe' ? `(STS) ${item.negoRate.toLocaleString()}` : `${item.negoRate}%`}
+                              </span>
+                            </td>
+                          ))}
+                        </tr>
+                        <tr className="h-20 bg-indigo-50/30">
+                          <td className="px-6 font-black text-indigo-600 border-r border-indigo-100 bg-indigo-50/50 text-base">최종 구매단가</td>
+                          {comparisonItems.map((item) => (
+                            <td key={`comp-price-${item.vendorId}-${item.id}`} className="px-6 text-center border-r border-indigo-100">
+                              <div className="flex flex-col items-center">
+                                <span className="text-xl font-black text-indigo-700 leading-none">
+                                  ₩{getRoundedValue(item.unitPrice, item.useRounding).toLocaleString()}
+                                </span>
+                                <span className="text-[9px] font-bold text-indigo-400 mt-1 uppercase tracking-tighter">
+                                  Final Net Price
+                                </span>
+                              </div>
+                            </td>
+                          ))}
+                        </tr>
+                        <tr className="h-12">
+                          <td className="px-6 font-bold text-slate-500 border-r border-slate-100 bg-slate-50">메이커</td>
+                          {comparisonItems.map((item) => (
+                            <td key={`comp-maker-${item.vendorId}-${item.id}`} className="px-6 text-center border-r border-slate-100 text-xs font-bold text-slate-600">{item.maker || '-'}</td>
+                          ))}
+                        </tr>
+                        <tr className="h-12">
+                          <td className="px-6 font-bold text-slate-500 border-r border-slate-100 bg-slate-50">단중</td>
+                          {comparisonItems.map((item) => (
+                            <td key={`comp-weight-${item.vendorId}-${item.id}`} className="px-6 text-center border-r border-slate-100 text-xs font-bold text-slate-600">{item.weight || 0} kg/m</td>
+                          ))}
+                        </tr>
+                        <tr className="h-16">
+                          <td className="px-6 font-bold text-slate-500 border-r border-slate-100 bg-slate-50">비고</td>
+                          {comparisonItems.map((item) => (
+                            <td key={`comp-remarks-${item.vendorId}-${item.id}`} className="px-6 text-center border-r border-slate-100 text-[11px] text-slate-500 leading-tight">
+                              <div className="max-h-12 overflow-y-auto w-full italic">
+                                {item.remarks || '-'}
+                              </div>
+                            </td>
+                          ))}
+                        </tr>
+                        <tr className="h-12">
+                          <td className="px-6 font-bold text-slate-500 border-r border-slate-100 bg-slate-50">동작</td>
+                          {comparisonItems.map((item) => (
+                            <td key={`comp-action-${item.vendorId}-${item.id}`} className="px-6 text-center border-r border-slate-100">
+                              <button 
+                                onClick={() => toggleComparison(item)}
+                                className="text-xs font-bold text-rose-500 hover:text-rose-600 hover:bg-rose-50 px-3 py-1.5 rounded-full transition-all"
+                              >
+                                이 품목 제거
+                              </button>
+                            </td>
+                          ))}
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div className="p-8 bg-slate-50 flex items-center justify-between shrink-0">
+                  <p className="text-sm font-bold text-slate-400">※ {comparisonItems.length}개의 품목이 비교 중입니다.</p>
+                  <div className="flex gap-4">
+                    <button 
+                      onClick={() => { setComparisonItems([]); setIsComparisonModalOpen(false); }}
+                      className="px-8 py-4 bg-white border border-slate-200 text-slate-600 font-black rounded-2xl hover:bg-slate-100 transition-all text-sm"
+                    >
+                      목록 전체 비우기
+                    </button>
+                    <button 
+                      onClick={() => setIsComparisonModalOpen(false)}
+                      className="px-10 py-4 bg-slate-900 text-white font-black rounded-2xl hover:bg-slate-800 transition-all shadow-xl shadow-slate-900/10 text-sm"
+                    >
+                      비교 종료
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
       </AnimatePresence>
     </div>
   );
