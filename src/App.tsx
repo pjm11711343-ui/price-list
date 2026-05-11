@@ -316,29 +316,39 @@ export default function App() {
     
     try {
       if (isDeepLinkMode && !isAdminMode) {
-        let pendingCount = 0;
-        for (const id of Array.from(selectedPriceIds)) {
-          const item = priceItems.find(p => p.id === id);
-          if (item && !item.hasPendingUpdate) {
-            let newNegoRate = item.negoRate || 0;
-            newNegoRate = Number(newNegoRate) + Number(bulkAdjustValue);
-            const newUnitPrice = calculatePrice(item.costPrice, newNegoRate, item.useRounding, item.negoType || 'percent', item.weight);
+        const targets = Array.from(selectedPriceIds)
+          .map(id => priceItems.find(p => p.id === id))
+          .filter(p => p && !p.hasPendingUpdate) as PriceItem[];
+          
+        if (targets.length === 0) {
+          alert('변경 가능한 품목이 없습니다. (이미 승인 대기 중이거나 대상 없음)');
+          return;
+        }
 
-            await addDoc(collection(db, 'pending_updates'), {
-              vendorId: selectedVendor.id,
-              priceItemId: id,
-              itemName: item.itemName,
-              oldData: { negoRate: item.negoRate, unitPrice: item.unitPrice },
-              newData: { negoRate: newNegoRate, unitPrice: newUnitPrice },
-              status: 'pending',
-              requestedBy: '업체(링크)',
-              requestedAt: serverTimestamp()
-            });
-            await updateDoc(doc(db, 'vendors', selectedVendor.id, 'prices', id), {
-              hasPendingUpdate: true
-            });
-            pendingCount++;
-          }
+        if (!confirm(`${targets.length}개 품목의 네고율을 현재 대비 ${bulkAdjustValue}% 가감 조정하여 승인 요청하시겠습니까?`)) {
+          return;
+        }
+
+        let pendingCount = 0;
+        for (const item of targets) {
+          let newNegoRate = item.negoRate || 0;
+          newNegoRate = Number(newNegoRate) + Number(bulkAdjustValue);
+          const newUnitPrice = calculatePrice(item.costPrice, newNegoRate, item.useRounding, item.negoType || 'percent', item.weight);
+
+          await addDoc(collection(db, 'pending_updates'), {
+            vendorId: selectedVendor.id,
+            priceItemId: item.id,
+            itemName: item.itemName,
+            oldData: { negoRate: item.negoRate, unitPrice: item.unitPrice },
+            newData: { negoRate: newNegoRate, unitPrice: newUnitPrice },
+            status: 'pending',
+            requestedBy: '업체(링크)',
+            requestedAt: serverTimestamp()
+          });
+          await updateDoc(doc(db, 'vendors', selectedVendor.id, 'prices', item.id), {
+            hasPendingUpdate: true
+          });
+          pendingCount++;
         }
         alert(`${pendingCount}개 품목에 대한 승인 요청이 전송되었습니다.`);
       } else {
@@ -416,6 +426,17 @@ export default function App() {
           return;
         }
 
+        const changesString = Object.entries(updates)
+          .map(([key, val]) => {
+            const oldVal = item[key as keyof PriceItem];
+            return `${key}: ${oldVal?.toLocaleString()} -> ${val?.toLocaleString()}`;
+          })
+          .join('\n');
+
+        if (!confirm(`변경 사항을 요청하시겠습니까?\n\n[변경 내용]\n${changesString}`)) {
+          return;
+        }
+
         // Create pending update
         await addDoc(collection(db, 'pending_updates'), {
           vendorId: selectedVendor.id,
@@ -467,6 +488,47 @@ export default function App() {
     } catch (error) {
       console.error("Approval error:", error);
       alert("승인 처리 중 오류가 발생했습니다.");
+    }
+  };
+
+  const handleBulkApproveUpdates = async () => {
+    const pendings = pendingUpdates.filter(u => u.status === 'pending');
+    if (pendings.length === 0) return;
+    if (!confirm(`${pendings.length}개의 모든 요청을 일괄 승인하시겠습니까?`)) return;
+
+    try {
+      setLoading(true);
+      
+      const chunks = [];
+      for (let i = 0; i < pendings.length; i += 400) {
+        chunks.push(pendings.slice(i, i + 400));
+      }
+
+      for (const chunk of chunks) {
+        const batch = writeBatch(db);
+        chunk.forEach(update => {
+          // 1. Apply to price item
+          batch.update(doc(db, 'vendors', update.vendorId, 'prices', update.priceItemId), {
+            ...update.newData,
+            updatedAt: serverTimestamp(),
+            hasPendingUpdate: false
+          });
+          
+          // 2. Mark update as approved
+          batch.update(doc(db, 'pending_updates', update.id), {
+            status: 'approved',
+            approvedAt: serverTimestamp()
+          });
+        });
+        await batch.commit();
+      }
+      
+      alert('모든 요청이 일괄 승인되었습니다.');
+    } catch (error) {
+      console.error("Bulk approval error:", error);
+      alert("일괄 승인 중 오류가 발생했습니다.");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -1797,6 +1859,14 @@ export default function App() {
                     <button 
                       onClick={async () => {
                         if (selectedPriceIds.size === 0) return;
+                        
+                        // Link mode confirmation
+                        if (isDeepLinkMode && !isAdminMode) {
+                          if (!confirm(`선택한 ${selectedPriceIds.size}개 품목에 대해 네고율 ${bulkNegoValue}%를 일괄 승인 요청하시겠습니까?`)) {
+                            return;
+                          }
+                        }
+
                         try {
                           const batch = writeBatch(db);
                           const pendingBatch = [];
@@ -3208,64 +3278,87 @@ export default function App() {
                   <p className="text-slate-400 font-medium text-sm">승인 대기 중인 항목이 없습니다.</p>
                 </div>
               ) : (
-                <div className="space-y-3">
-                  {pendingUpdates.filter(u => u.status === 'pending').map((update) => {
-                    const vendor = vendors.find(v => v.id === update.vendorId);
-                    return (
-                      <div key={update.id} className="p-5 border border-slate-100 rounded-2xl bg-white shadow-sm hover:shadow-md transition-all">
-                        <div className="flex items-start justify-between mb-4">
-                          <div>
-                            <div className="flex items-center gap-2 mb-1">
-                              <span className="text-[10px] font-black bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full uppercase tracking-wider">
-                                {vendor?.name || '알 수 없는 업체'}
-                              </span>
-                              <span className="text-[10px] text-slate-400">
-                                {new Date(update.requestedAt?.toDate?.() || Date.now()).toLocaleString()}
-                              </span>
-                            </div>
-                            <h4 className="text-sm font-black text-slate-800">{update.itemName}</h4>
-                          </div>
-                          <div className="flex gap-2">
-                            <button 
-                              onClick={() => handleRejectUpdate(update.id)}
-                              className="px-4 py-2 bg-rose-50 text-rose-600 text-xs font-bold rounded-xl hover:bg-rose-100 transition-colors"
-                            >
-                              거절
-                            </button>
-                            <button 
-                              onClick={() => handleApproveUpdate(update)}
-                              className="px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
-                            >
-                              승인 적용
-                            </button>
-                          </div>
-                        </div>
-                        
-                        <div className="grid grid-cols-2 gap-4 bg-slate-50/50 p-4 rounded-xl border border-dashed border-slate-200">
-                          <div className="space-y-1">
-                            <span className="text-[10px] font-bold text-slate-400 uppercase">기존 데이터</span>
-                            <div className="space-y-1">
-                              {Object.entries(update.oldData).map(([key, val]) => (
-                                <div key={key} className="text-xs font-mono text-slate-500">
-                                  {key}: <span className="font-bold">{val?.toLocaleString()}</span>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                          <div className="space-y-1">
-                            <span className="text-[10px] font-bold text-indigo-400 uppercase">변경 요청</span>
-                            <div className="space-y-1">
-                              {Object.entries(update.newData).map(([key, val]) => (
-                                <div key={key} className="text-xs font-mono text-indigo-600">
-                                  {key}: <span className="font-bold">{val?.toLocaleString()}</span>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        </div>
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between bg-slate-50 border border-slate-200 p-4 rounded-2xl">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center">
+                        <FileText className="h-5 w-5 text-indigo-600" />
                       </div>
-                    );
-                  })}
+                      <div>
+                        <h4 className="text-sm font-black text-slate-800">전체 승인 대기 내역</h4>
+                        <p className="text-[10px] text-slate-500 font-bold">총 {pendingUpdates.filter(u => u.status === 'pending').length}건의 요청이 있습니다.</p>
+                      </div>
+                    </div>
+                    <button 
+                      onClick={handleBulkApproveUpdates}
+                      className="px-6 py-2.5 bg-indigo-600 text-white text-xs font-black rounded-xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 flex items-center gap-2"
+                    >
+                      <Save className="h-3.5 w-3.5" />
+                      일괄 승인 적용
+                    </button>
+                  </div>
+
+                  <div className="space-y-3">
+                    {pendingUpdates.filter(u => u.status === 'pending').map((update) => {
+                      const vendor = vendors.find(v => v.id === update.vendorId);
+                      return (
+                        <div key={update.id} className="p-5 border border-slate-100 rounded-2xl bg-white shadow-sm hover:shadow-md transition-all">
+                          <div className="flex items-start justify-between mb-4">
+                            <div>
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="text-[10px] font-black bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full uppercase tracking-wider">
+                                  {vendor?.name || '알 수 없는 업체'}
+                                </span>
+                                <span className="text-[10px] text-slate-400">
+                                  {new Date(update.requestedAt?.toDate?.() || Date.now()).toLocaleString()}
+                                </span>
+                              </div>
+                              <h4 className="text-sm font-black text-slate-800">{update.itemName}</h4>
+                            </div>
+                            <div className="flex gap-2">
+                              <button 
+                                onClick={() => handleRejectUpdate(update.id)}
+                                className="px-4 py-2 bg-rose-50 text-rose-600 text-xs font-bold rounded-xl hover:bg-rose-100 transition-colors"
+                              >
+                                거절
+                              </button>
+                              <button 
+                                onClick={() => handleApproveUpdate(update)}
+                                className="px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
+                              >
+                                승인 적용
+                              </button>
+                            </div>
+                          </div>
+                          
+                          <div className="grid grid-cols-2 gap-4 bg-slate-50/50 p-4 rounded-xl border border-dashed border-slate-200">
+                            <div className="space-y-2">
+                              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">변경 전 (기존)</span>
+                              <div className="space-y-1">
+                                {Object.entries(update.oldData).map(([key, val]) => (
+                                  <div key={key} className="flex items-center justify-between text-[11px] font-mono text-slate-500">
+                                    <span className="opacity-60">{key}:</span>
+                                    <span className="font-black text-slate-600">{val?.toLocaleString()}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                            <div className="space-y-2 border-l border-slate-200 pl-4">
+                              <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest">변경 후 (요청)</span>
+                              <div className="space-y-1">
+                                {Object.entries(update.newData).map(([key, val]) => (
+                                  <div key={key} className="flex items-center justify-between text-[11px] font-mono text-indigo-600">
+                                    <span className="opacity-60">{key}:</span>
+                                    <span className="font-black">{val?.toLocaleString()}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
             </div>
