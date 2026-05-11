@@ -141,6 +141,10 @@ export default function App() {
   const [isUploading, setIsUploading] = useState(false);
   const [seedStatus, setSeedStatus] = useState<{ current: number; total: number; isDone: boolean } | null>(null);
   const [isAdminMode, setIsAdminMode] = useState(false);
+  const [showVendorPasswords, setShowVendorPasswords] = useState<{[key: string]: boolean}>({});
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [vendorToDelete, setVendorToDelete] = useState<{id: string, name: string} | null>(null);
+  const [deletePasswordInput, setDeletePasswordInput] = useState('');
   const [selectedPriceIds, setSelectedPriceIds] = useState<Set<string>>(new Set());
   const [isBulkAdjustModalOpen, setIsBulkAdjustModalOpen] = useState(false);
   const [bulkAdjustValue, setBulkAdjustValue] = useState<number>(0);
@@ -458,40 +462,46 @@ export default function App() {
     }
   };
 
-  const deleteVendor = async (id: string, e?: React.MouseEvent) => {
+  const deleteVendor = (id: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
     
     if (!isAdminMode) {
-      alert('관리자 모드에서만 삭제가 가능합니다.');
+      setShowAdminLogin(true);
       return;
     }
     
-    const vendorToDelete = vendors.find(v => v.id === id);
-    const vendorName = vendorToDelete ? vendorToDelete.name : "이 업체";
+    const vendor = vendors.find(v => v.id === id);
+    if (!vendor) return;
 
-    if (!window.confirm(`[🚨 주의] '${vendorName}' 업체를 정말로 삭제하시겠습니까?\n이 작업은 되돌릴 수 없으며 모든 단가 정보가 함께 영구 삭제됩니다.`)) {
+    setVendorToDelete({ id: vendor.id, name: vendor.name });
+    setIsDeleteModalOpen(true);
+  };
+
+  const handleConfirmDelete = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!vendorToDelete) return;
+
+    // Verify admin password for deletion
+    if (deletePasswordInput !== 'admin1234') {
+      alert('비밀번호가 일치하지 않습니다.');
       return;
     }
 
     try {
       setLoading(true);
-      console.log(`Starting deletion for vendor: ${id}`);
+      const id = vendorToDelete.id;
       
       // 1. Delete associated prices
       const pricesRef = collection(db, 'vendors', id, 'prices');
       const pricesSnap = await getDocs(pricesRef);
-      console.log(`Found ${pricesSnap.size} prices to delete`);
       
       for (const priceDoc of pricesSnap.docs) {
         await deleteDoc(doc(db, 'vendors', id, 'prices', priceDoc.id));
       }
-      console.log("Sub-collection 'prices' deleted.");
 
       // 2. Delete the vendor document
       await deleteDoc(doc(db, 'vendors', id));
-      console.log("Vendor document deleted.");
       
-      // Clear state if we deleted the currently viewed vendor
       if (selectedVendor?.id === id) {
         setSelectedVendor(null);
         setIsVerified(null);
@@ -499,16 +509,12 @@ export default function App() {
       }
       
       alert('업체가 성공적으로 삭제되었습니다.');
+      setIsDeleteModalOpen(false);
+      setVendorToDelete(null);
+      setDeletePasswordInput('');
     } catch (error) {
-      console.error("Delete Error details:", error);
-      let message = '업체 삭제 중 오류가 발생했습니다.';
-      if (error instanceof Error) {
-        message += `\n내용: ${error.message}`;
-        if (error.message.includes('permission')) {
-          message += '\n(권한 부족: Firestore 규칙을 확인하세요)';
-        }
-      }
-      alert(message);
+      console.error("Delete Error:", error);
+      alert('삭제 중 오류가 발생했습니다.');
     } finally {
       setLoading(false);
     }
@@ -1436,14 +1442,33 @@ export default function App() {
                             {copySuccess ? '복사됨!' : '접속 링크 복사'}
                           </button>
                         </div>
-                        <p className="text-xs text-slate-400 font-bold mt-1 tracking-tight">
+                        <div className="text-xs text-slate-400 font-bold mt-1 tracking-tight flex items-center flex-wrap">
                           V-ID: {selectedVendor.id.slice(0, 8)} | 실시간 단가 관리 시스템
                           {isAdminMode && (
-                            <span className="ml-3 text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100 font-mono">
-                              ADMIN PW: <span className="font-black">{selectedVendor.password}</span>
-                            </span>
+                            <div className="ml-3 inline-flex items-center gap-2">
+                              {showVendorPasswords[selectedVendor.id] ? (
+                                <span className="text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100 font-mono flex items-center gap-2">
+                                  <Lock className="h-3 w-3" />
+                                  PW: <span className="font-black">{selectedVendor.password}</span>
+                                  <button 
+                                    onClick={() => setShowVendorPasswords(prev => ({ ...prev, [selectedVendor.id]: false }))}
+                                    className="ml-1 text-[10px] text-slate-400 hover:text-slate-600"
+                                  >
+                                    숨기기
+                                  </button>
+                                </span>
+                              ) : (
+                                <button 
+                                  onClick={() => setShowVendorPasswords(prev => ({ ...prev, [selectedVendor.id]: true }))}
+                                  className="text-[10px] bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded border border-indigo-100 hover:bg-indigo-100 transition-colors flex items-center gap-1"
+                                >
+                                  <Unlock className="h-3 w-3" />
+                                  비밀번호 보기
+                                </button>
+                              )}
+                            </div>
                           )}
-                        </p>
+                        </div>
                       </div>
                     </div>
 
@@ -2226,6 +2251,51 @@ export default function App() {
               <button type="submit" className="w-full rounded-3xl bg-slate-900 py-5 text-xl font-black text-white shadow-2xl transition-all hover:bg-slate-800 hover:scale-[1.02]">
                 단가 데이터 업데이트
               </button>
+            </form>
+          </Modal>
+        )}
+
+        {isDeleteModalOpen && vendorToDelete && (
+          <Modal key="modal-delete-vendor-confirm" title="업체 삭제 최종 확인" onClose={() => setIsDeleteModalOpen(false)}>
+            <form onSubmit={handleConfirmDelete} className="space-y-6">
+              <div className="bg-rose-50 border border-rose-100 p-6 rounded-2xl">
+                <div className="flex items-center gap-3 text-rose-600 mb-4">
+                  <Trash2 className="h-6 w-6" />
+                  <h3 className="text-lg font-black tracking-tight">이 작업은 취소할 수 없습니다.</h3>
+                </div>
+                <p className="text-sm text-rose-700 leading-relaxed font-bold">
+                  ' <span className="underline decoration-rose-300 underline-offset-4">{vendorToDelete.name}</span> ' 업체와 관련된 모든 데이터(단가표, 설정 등)가 <span className="bg-rose-100 px-1">영구적으로 삭제</span>됩니다.
+                </p>
+              </div>
+              
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">관리자 비밀번호를 한 번 더 입력해주세요</label>
+                <input 
+                  type="password" 
+                  value={deletePasswordInput}
+                  onChange={(e) => setDeletePasswordInput(e.target.value)}
+                  placeholder="관리자 비밀번호"
+                  autoFocus
+                  required
+                  className="w-full rounded-2xl border-2 border-slate-100 bg-slate-50 p-4 font-bold text-slate-800 focus:border-rose-500 focus:bg-white focus:outline-none transition-all" 
+                />
+              </div>
+
+              <div className="flex gap-4">
+                <button 
+                  type="button"
+                  onClick={() => setIsDeleteModalOpen(false)}
+                  className="flex-1 py-4 bg-slate-100 text-slate-600 font-bold rounded-2xl hover:bg-slate-200 transition-all"
+                >
+                  취소
+                </button>
+                <button 
+                  type="submit" 
+                  className="flex-1 py-4 bg-rose-600 text-white font-black rounded-2xl hover:bg-rose-700 transition-all shadow-xl shadow-rose-100"
+                >
+                  업체 데이터 영구 삭제
+                </button>
+              </div>
             </form>
           </Modal>
         )}
