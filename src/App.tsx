@@ -145,10 +145,11 @@ export default function App() {
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [vendorToDelete, setVendorToDelete] = useState<{id: string, name: string} | null>(null);
   const [deletePasswordInput, setDeletePasswordInput] = useState('');
+  const [addItemNegoType, setAddItemNegoType] = useState<'percent' | 'sts_pipe'>('percent');
   const [selectedPriceIds, setSelectedPriceIds] = useState<Set<string>>(new Set());
   const [isBulkAdjustModalOpen, setIsBulkAdjustModalOpen] = useState(false);
   const [bulkAdjustValue, setBulkAdjustValue] = useState<number>(0);
-  const [bulkAdjustType, setBulkAdjustType] = useState<'percent' | 'fixed'>('percent');
+  const [bulkAdjustType, setBulkAdjustType] = useState<'percent'>('percent');
   const [isDeepLinkMode, setIsDeepLinkMode] = useState(false);
   const [adminPasswordInput, setAdminPasswordInput] = useState('');
   const [showAdminLogin, setShowAdminLogin] = useState(false);
@@ -175,6 +176,7 @@ export default function App() {
     unit: 80,
     costPrice: 120,
     negoRate: 100,
+    weight: 90,
     discountAmount: 120,
     unitPrice: 120,
     change: 100
@@ -298,15 +300,9 @@ export default function App() {
           let newNegoRate = item.negoRate || 0;
           let newUnitPrice = item.unitPrice;
 
-          if (bulkAdjustType === 'percent') {
-            // Apply percentage adjustment to negoRate
-            // If user enters 5 (meaning 5% additional nego), it adds to negoRate
-            newNegoRate = Number(newNegoRate) + Number(bulkAdjustValue);
-            newUnitPrice = calculatePrice(item.costPrice, newNegoRate);
-          } else {
-            // Add fixed amount to unitPrice
-            newUnitPrice = Number(newUnitPrice) + Number(bulkAdjustValue);
-          }
+          // Only percent adjustment is supported now
+          newNegoRate = Number(newNegoRate) + Number(bulkAdjustValue);
+          newUnitPrice = calculatePrice(item.costPrice, newNegoRate, item.useRounding, item.negoType || 'percent', item.weight);
 
           batch.update(doc(db, 'vendors', selectedVendor.id, 'prices', id), {
             negoRate: newNegoRate,
@@ -337,14 +333,29 @@ export default function App() {
         updatedAt: serverTimestamp()
       };
 
-      if (field === 'negoRate') {
+      if (field === 'costPrice') {
+        const newCost = Number(value);
+        const newUnitPrice = calculatePrice(newCost, item.negoRate, item.useRounding, item.negoType || 'percent', item.weight);
+        updates.costPrice = newCost;
+        updates.unitPrice = newUnitPrice;
+      } else if (field === 'weight') {
+        const newWeight = Number(value);
+        const newUnitPrice = calculatePrice(item.costPrice, item.negoRate, item.useRounding, item.negoType || 'percent', newWeight);
+        updates.weight = newWeight;
+        updates.unitPrice = newUnitPrice;
+      } else if (field === 'negoRate') {
         const newNegoRate = Number(value);
-        const newUnitPrice = calculatePrice(item.costPrice, newNegoRate, item.useRounding);
+        const newUnitPrice = calculatePrice(item.costPrice, newNegoRate, item.useRounding, item.negoType || 'percent', item.weight);
         updates.negoRate = newNegoRate;
+        updates.unitPrice = newUnitPrice;
+      } else if (field === 'negoType') {
+        const newType = value as 'percent' | 'sts_pipe';
+        const newUnitPrice = calculatePrice(item.costPrice, item.negoRate, item.useRounding, newType, item.weight);
+        updates.negoType = newType;
         updates.unitPrice = newUnitPrice;
       } else if (field === 'useRounding') {
         const newUseRounding = value as boolean;
-        const newUnitPrice = calculatePrice(item.costPrice, item.negoRate, newUseRounding);
+        const newUnitPrice = calculatePrice(item.costPrice, item.negoRate, newUseRounding, item.negoType || 'percent', item.weight);
         updates.useRounding = newUseRounding;
         updates.unitPrice = newUnitPrice;
       } else {
@@ -357,8 +368,17 @@ export default function App() {
     }
   };
 
-  const calculatePrice = (cost: number, rate: number, itemRoundingOverride?: boolean) => {
-    let price = cost * (1 - (rate / 100));
+  const calculatePrice = (cost: number, rate: number, itemRoundingOverride?: boolean, type: 'percent' | 'sts_pipe' = 'percent', weight?: number) => {
+    let price = 0;
+    
+    if (type === 'sts_pipe') {
+      // STS PIPE: 단중(KG/M) * KG단가(costPrice)
+      price = (weight || 0) * cost;
+    } else {
+      // Default: Percentage discount
+      price = cost * (1 - (rate / 100));
+    }
+
     const method = selectedVendor?.roundingMethod || 'none';
     
     // Use item override if provided, otherwise fallback to vendor setting
@@ -592,7 +612,8 @@ export default function App() {
         '규격': '50A',
         '품번': 'VB-KS10K-50',
         '단위': 'EA',
-        '네고율(%)': 5,
+        '네고치': 5,
+        '네고방식': '%',
         '협가': 45000,
         '제조사': 'A-Maker',
         '비고': '신규 모델'
@@ -603,10 +624,24 @@ export default function App() {
         '규격': '100A SCH40',
         '품번': 'FT-EL90-100',
         '단위': 'EA',
-        '네고율(%)': 0,
+        '네고치': 0,
+        '네고방식': '%',
         '협가': 12000,
         '제조사': 'B-Maker',
         '비고': ''
+      },
+      {
+        '카테고리': '파이프',
+        '품명': 'STS304 PIPE 20A',
+        '규격': '20A SCH10',
+        '품번': 'PP-STS-20A',
+        '단위': 'M',
+        '네고치': 0,
+        '네고방식': 'STS',
+        '단중': 1.62,
+        '협가': 4500,
+        '제조사': 'MS-Metal',
+        '비고': 'STS PIPE 단중식'
       }
     ];
 
@@ -659,12 +694,21 @@ export default function App() {
           const batch = writeBatch(db);
           chunk.forEach((row, index) => {
             const costPrice = Number(row['협가'] || row['구매단가(입력)'] || row['현단가'] || row['단가'] || row['Price'] || 0);
-            const negoRate = Number(row['네고율'] || row['네고율(%)'] || row['Discount'] || 0);
+            const negoRate = Number(row['네고율'] || row['네고율(%)'] || row['네고치'] || row['Discount'] || 0);
+
+            let negoType: 'percent' | 'sts_pipe' = 'percent';
+            const rawType = String(row['네고방식'] || row['Nego Type'] || '').trim();
+            if (rawType === 'STS' || rawType === 'sts_pipe') {
+              negoType = 'sts_pipe';
+            }
+
+            const weight = Number(row['단중'] || row['Weight'] || 0);
+
             const itemRounding = row['반올림여부'] !== undefined ? 
                                (row['반올림여부'] === 'Y' || row['반올림여부'] === true) : 
                                (selectedVendor.roundingMethod !== 'none');
             
-            const unitPrice = calculatePrice(costPrice, negoRate, itemRounding);
+            const unitPrice = calculatePrice(costPrice, negoRate, itemRounding, negoType, weight);
 
             const itemName = String(row['품목명'] || row['품명'] || row['Name'] || '').trim();
             const spec = String(row['규격'] || row['Spec'] || '').trim();
@@ -681,6 +725,8 @@ export default function App() {
               unit: String(row['단위'] || row['Unit'] || 'EA'),
               costPrice,
               negoRate,
+              negoType,
+              weight,
               unitPrice,
               remarks: String(row['비고'] || row['Remarks'] || ''),
               maker: String(row['메이커'] || row['제조사'] || row['Maker'] || ''),
@@ -1099,8 +1145,10 @@ export default function App() {
     const formData = new FormData(e.currentTarget);
     const costPrice = Number(formData.get('costPrice') || 0);
     const negoRate = Number(formData.get('negoRate') || 0);
+    const negoType = (formData.get('negoType') as 'percent' | 'sts_pipe') || 'percent';
+    const weight = Number(formData.get('weight') || 0);
     const useRounding = formData.get('itemRounding') === 'on';
-    const unitPrice = calculatePrice(costPrice, negoRate, useRounding);
+    const unitPrice = calculatePrice(costPrice, negoRate, useRounding, negoType, weight);
 
     const newItem = {
       vendorId: selectedVendor.id,
@@ -1111,7 +1159,9 @@ export default function App() {
       unit: formData.get('unit') as string,
       costPrice,
       negoRate,
+      negoType,
       unitPrice,
+      weight,
       useRounding,
       remarks: formData.get('remarks') as string,
       maker: formData.get('maker') as string,
@@ -1146,14 +1196,17 @@ export default function App() {
   const handleUpdatePriceItem = async (itemId: string, updates: Partial<PriceItem>) => {
     if (!selectedVendor) return;
     
-    // Recalculate unit price if cost or rate changed
+    // Recalculate unit price if cost, rate, type, or weight changed
     let finalUnitPrice = updates.unitPrice;
-    if (updates.costPrice !== undefined || updates.negoRate !== undefined) {
+    if (updates.costPrice !== undefined || updates.negoRate !== undefined || updates.negoType !== undefined || updates.weight !== undefined) {
       const item = priceItems.find(i => i.id === itemId);
       if (item) {
         const cost = updates.costPrice ?? item.costPrice;
         const rate = updates.negoRate ?? item.negoRate;
-        finalUnitPrice = calculatePrice(cost, rate);
+        const type = updates.negoType ?? item.negoType ?? 'percent';
+        const useRounding = updates.useRounding ?? item.useRounding;
+        const weight = updates.weight ?? item.weight;
+        finalUnitPrice = calculatePrice(cost, rate, useRounding, type, weight);
       }
     }
 
@@ -1182,8 +1235,10 @@ export default function App() {
       '품명': item.itemName,
       '규격': item.spec || '',
       '단위': item.unit || '',
+      '네고치': item.negoRate || 0,
+      '네고방식': item.negoType === 'sts_pipe' ? 'STS' : '%',
+      '단중': item.weight || 0,
       '구매단가': item.unitPrice || 0,
-      '네고율(%)': item.negoRate || 0,
       '협가': item.costPrice || 0,
       '제조사': item.maker || '',
       '비고': item.remarks || ''
@@ -1215,7 +1270,15 @@ export default function App() {
         for (const row of data) {
           const costPrice = Number(row['협가'] || row['구매단가(입력)'] || row['현단가'] || row['단가'] || row['Negotiated Price'] || 0);
           const negoRate = Number(row['네고율'] || row['네고율(%)'] || row['Nego Rate'] || 0);
-          const unitPrice = calculatePrice(costPrice, negoRate);
+          
+          let negoType: 'percent' | 'sts_pipe' = 'percent';
+          const rawType = String(row['네고방식'] || row['Nego Type'] || '').trim().toUpperCase();
+          if (rawType === 'STS') {
+            negoType = 'sts_pipe';
+          }
+
+          const weight = Number(row['단중'] || row['Weight'] || 0);
+          const unitPrice = calculatePrice(costPrice, negoRate, undefined, negoType, weight);
 
           const newItem = {
             vendorId: selectedVendor.id,
@@ -1225,6 +1288,8 @@ export default function App() {
             maker: row['메이커'] || row['제조사'] || '',
             costPrice,
             negoRate,
+            negoType,
+            weight,
             unitPrice,
             remarks: row['비고'] || '',
             order: priceItems.length + importCount + 1,
@@ -1559,7 +1624,7 @@ export default function App() {
                           selectedPriceIds.forEach(id => {
                             const item = priceItems.find(p => p.id === id);
                             if (item) {
-                              const newUnitPrice = calculatePrice(item.costPrice, bulkNegoValue, item.useRounding);
+                              const newUnitPrice = calculatePrice(item.costPrice, bulkNegoValue, item.useRounding, item.negoType || 'percent', item.weight);
                               batch.update(doc(db, 'vendors', selectedVendor.id, 'prices', id), {
                                 negoRate: bulkNegoValue,
                                 unitPrice: newUnitPrice,
@@ -1603,7 +1668,7 @@ export default function App() {
                           for (const chunk of chunks) {
                             const batch = writeBatch(db);
                             chunk.forEach(item => {
-                              const newUnitPrice = calculatePrice(item.costPrice, bulkNegoValue, item.useRounding);
+                              const newUnitPrice = calculatePrice(item.costPrice, bulkNegoValue, item.useRounding, item.negoType || 'percent', item.weight);
                               batch.update(doc(db, 'vendors', selectedVendor.id, 'prices', item.id), {
                                 negoRate: bulkNegoValue,
                                 unitPrice: newUnitPrice,
@@ -1806,9 +1871,16 @@ export default function App() {
                         />
                       </th>
                       <th className="px-4 text-center font-semibold bg-slate-50/80 relative border-r border-slate-50 group/th" style={{ width: columnWidths.negoRate }}>
-                        네고율
+                        네고율/방식
                         <div 
                           onMouseDown={(e) => startResize(e, 'negoRate')}
+                          className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-indigo-400 transition-colors bg-transparent z-10"
+                        />
+                      </th>
+                      <th className="px-4 text-center font-semibold bg-slate-50/80 relative border-r border-slate-50 group/th" style={{ width: columnWidths.weight }}>
+                        단중 (KG/M)
+                        <div 
+                          onMouseDown={(e) => startResize(e, 'weight')}
                           className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-indigo-400 transition-colors bg-transparent z-10"
                         />
                       </th>
@@ -1852,7 +1924,7 @@ export default function App() {
                       const matchesCategory = activeCategory === '전체' || item.category === activeCategory;
                       return matchesSearch && matchesCategory;
                     }).map((item, idx) => {
-                      const discount = item.costPrice * (item.negoRate / 100);
+                      const discount = item.negoType === 'sts_pipe' ? 0 : item.costPrice * (item.negoRate / 100);
                       return (
                         <tr 
                           key={item.id} 
@@ -1884,20 +1956,44 @@ export default function App() {
                           </td>
                           <td className="px-4 text-center bg-slate-50/10 font-bold text-indigo-600">
                              <div className="flex items-center justify-center gap-0.5">
-                                <input 
-                                  type="number"
-                                  value={item.negoRate}
-                                  onChange={(e) => handleInlinePriceUpdate(item.id, 'negoRate', Number(e.target.value))}
-                                  className="w-10 bg-transparent border-none text-center p-0 outline-none focus:ring-0 appearance-none font-bold text-xs"
-                                />
-                                <span className="text-[10px] font-medium opacity-50">%</span>
+                                {item.negoType !== 'sts_pipe' ? (
+                                  <input 
+                                    type="number"
+                                    value={item.negoRate}
+                                    onChange={(e) => handleInlinePriceUpdate(item.id, 'negoRate', Number(e.target.value))}
+                                    className="w-12 bg-transparent border-none text-center p-0 outline-none focus:ring-0 appearance-none font-bold text-xs"
+                                  />
+                                ) : (
+                                  <span className="w-12 text-slate-300">-</span>
+                                )}
+                                <button 
+                                  onClick={() => {
+                                    const nextType = item.negoType === 'percent' ? 'sts_pipe' : 'percent';
+                                    handleInlinePriceUpdate(item.id, 'negoType', nextType);
+                                  }}
+                                  className="text-[10px] font-medium opacity-50 hover:opacity-100 hover:text-indigo-600 transition-all cursor-pointer bg-slate-100 px-1 rounded"
+                                  title="네고 방식 변경 (% <-> STS)"
+                                >
+                                  {item.negoType === 'sts_pipe' ? 'STS' : '%'}
+                                </button>
                              </div>
+                          </td>
+                          <td className="px-4 text-center bg-slate-50/10 font-bold text-slate-600">
+                            {item.negoType === 'sts_pipe' ? (
+                              <input 
+                                type="number"
+                                value={item.weight || 0}
+                                step="any"
+                                onChange={(e) => handleInlinePriceUpdate(item.id, 'weight', Number(e.target.value))}
+                                className="w-12 bg-transparent border-none text-center p-0 outline-none focus:ring-1 focus:ring-indigo-100 rounded appearance-none font-bold text-xs"
+                              />
+                            ) : '-'}
                           </td>
                           <td className="px-4 text-right font-mono font-medium text-slate-600 h-full">
                             {item.costPrice.toLocaleString()}
                           </td>
                           <td className="px-4 text-right font-mono font-bold text-emerald-600/80 bg-slate-50/10 text-xs">
-                            ▼{getRoundedValue(discount, item.useRounding).toLocaleString()}
+                            {item.negoType === 'sts_pipe' ? '-' : `▼${getRoundedValue(discount, item.useRounding).toLocaleString()}`}
                           </td>
                           <td className="px-4 text-right">
                              <span className={`text-[10px] font-bold ${idx % 3 === 0 ? 'text-indigo-500' : idx % 2 === 0 ? 'text-rose-500' : 'text-slate-300'}`}>
@@ -2221,12 +2317,34 @@ export default function App() {
                     <input name="costPrice" type="number" required placeholder="0" className="w-full rounded-2xl border-2 border-slate-100 bg-slate-50 p-4 pl-10 font-black text-slate-800 focus:border-indigo-500 focus:bg-white focus:outline-none transition-all" />
                   </div>
                 </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-600">네고율 (Nego Rate %) *</label>
-                  <div className="relative">
-                    <span className="absolute right-6 top-1/2 -translate-y-1/2 text-xl font-black text-indigo-300">%</span>
-                    <input name="negoRate" type="number" step="any" defaultValue="0" className="w-full rounded-2xl border-2 border-indigo-100 bg-indigo-50/30 p-4 pr-12 text-xl font-black text-indigo-700 focus:border-indigo-500 focus:bg-white focus:outline-none transition-all" />
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-600">네고 방식 & 율/금액/방식 *</label>
+                      <select 
+                        name="negoType" 
+                        value={addItemNegoType}
+                        onChange={(e) => setAddItemNegoType(e.target.value as any)}
+                        className="text-[10px] font-black bg-indigo-100 text-indigo-700 border-none rounded-lg px-2 py-1 outline-none cursor-pointer"
+                      >
+                        <option value="percent">할인율 (%)</option>
+                        <option value="sts_pipe">STS PIPE (단중식)</option>
+                      </select>
+                    </div>
+                    {addItemNegoType === 'sts_pipe' ? (
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-bold text-slate-400">단중 (Weight: KG/M)</label>
+                        <input name="weight" type="number" step="any" placeholder="0.00" className="w-full rounded-xl border-2 border-indigo-100 bg-indigo-50/10 p-3 font-bold text-indigo-700 focus:border-indigo-500 transition-all" />
+                      </div>
+                    ) : (
+                      <div className="relative">
+                        <input name="negoRate" type="number" step="any" defaultValue="0" className="w-full rounded-2xl border-2 border-indigo-100 bg-indigo-50/30 p-4 font-black text-indigo-700 focus:border-indigo-500 focus:bg-white focus:outline-none transition-all" />
+                      </div>
+                    )}
                   </div>
+                  {addItemNegoType === 'sts_pipe' && (
+                    <p className="text-[9px] text-indigo-400 font-medium">※ STS PIPE: 단중(KG/M) × KG단가(협가)로 구매단가가 자동계산됩니다.</p>
+                  )}
                 </div>
                 <div className="col-span-full grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-2">
@@ -2641,54 +2759,28 @@ export default function App() {
 
               <div className="space-y-4">
                 <label className="block">
-                  <span className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-2 block">조정 방식</span>
-                  <div className="flex gap-4 p-4 bg-slate-50 rounded-2xl border-2 border-slate-100">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input 
-                        type="radio" 
-                        name="adjustType" 
-                        value="percent" 
-                        checked={bulkAdjustType === 'percent'}
-                        onChange={() => setBulkAdjustType('percent')}
-                        className="text-indigo-600 focus:ring-indigo-500"
-                      />
-                      <span className="text-sm font-bold text-slate-700">네고율 추가 (%)</span>
-                    </label>
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input 
-                        type="radio" 
-                        name="adjustType" 
-                        value="fixed" 
-                        checked={bulkAdjustType === 'fixed'}
-                        onChange={() => setBulkAdjustType('fixed')}
-                        className="text-indigo-600 focus:ring-indigo-500"
-                      />
-                      <span className="text-sm font-bold text-slate-700">단가 직접 가감 (원)</span>
-                    </label>
-                  </div>
+                  <span className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-2 block">조정 방식: 네고율 추가 (%)</span>
                 </label>
 
                 <label className="block">
                   <span className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-2 block">
-                    {bulkAdjustType === 'percent' ? '네고율 변동치' : '금액 변동치'}
+                    네고율 변동치
                   </span>
                   <div className="relative">
                     <input 
                       type="number"
                       value={bulkAdjustValue}
                       onChange={(e) => setBulkAdjustValue(Number(e.target.value))}
-                      placeholder={bulkAdjustType === 'percent' ? "예: 5 (5% 추가 네고)" : "예: -1000 (1000원 인하)"}
+                      placeholder="예: 5 (5% 추가 네고)"
                       autoFocus
                       className="w-full rounded-2xl border-2 border-slate-100 bg-slate-50 p-4 font-bold text-slate-800 focus:border-indigo-500 focus:bg-white focus:outline-none transition-all pr-12 text-lg"
                     />
                     <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">
-                      {bulkAdjustType === 'percent' ? '%' : '원'}
+                      %
                     </span>
                   </div>
                   <p className="mt-2 text-[10px] text-slate-500 font-medium">
-                    {bulkAdjustType === 'percent' 
-                      ? '기존 네고율에 입력한 수치를 더합니다. (예: 5 입력 시 기존 10% -> 15%)' 
-                      : '기존 단가에 입력한 금액을 더합니다. (예: -1000 입력 시 1000원 인하)'}
+                    기존 네고율에 입력한 수치를 더합니다. (예: 5 입력 시 기존 10% {"->"} 15%)
                   </p>
                 </label>
               </div>

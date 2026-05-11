@@ -38,8 +38,10 @@ export interface PriceItem {
   category?: string; // 카테고리 (밸브류, 피팅류 등)
   spec?: string;
   unit?: string;
-  costPrice: number; // 현단가 (협가)
+  costPrice: number; // 현단가 (협가 또는 KG단가)
   negoRate: number;  // 네고율 (%)
+  negoType?: 'percent' | 'sts_pipe'; // 네고 방식 (STS PIPE 추가)
+  weight?: number; // 단중 (kg/m 등)
   unitPrice: number; // 구매단가 (최종 계산가)
   remarks?: string;
   maker?: string;
