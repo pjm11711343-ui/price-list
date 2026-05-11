@@ -4,6 +4,10 @@
       "path": "vendors",
       "description": "Master list of vendors/suppliers",
       "subcollections": {
+        "prices": {
+          "schema": "PriceItem",
+          "description": "Individual unit prices for products from this vendor"
+        },
         "handling_items": {
           "schema": "ComparisonRow",
           "description": "Individual comparison items for this vendor"
@@ -22,9 +26,30 @@
         "businessNumber": { "type": "string" },
         "email": { "type": "string", "format": "email" },
         "password": { "type": "string" },
-        "handlingDetails": { "type": "object", "description": "Legacy field, migrated to subcollection" }
+        "phone": { "type": "string" },
+        "fax": { "type": "string" },
+        "notes": { "type": "string" },
+        "roundingMethod": { "type": "string" }
       },
-      "required": ["name", "email"]
+      "required": ["name"]
+    },
+    "PriceItem": {
+      "title": "Price Item",
+      "description": "A specific product's unit price information",
+      "type": "object",
+      "properties": {
+        "itemName": { "type": "string" },
+        "spec": { "type": "string" },
+        "unit": { "type": "string" },
+        "costPrice": { "type": "number" },
+        "negoRate": { "type": "number" },
+        "unitPrice": { "type": "number" },
+        "remarks": { "type": "string" },
+        "maker": { "type": "string" },
+        "order": { "type": "number" },
+        "useRounding": { "type": "boolean", "description": "Whether to apply rounding to this specific item" }
+      },
+      "required": ["itemName", "costPrice", "unitPrice"]
     },
     "ComparisonRow": {
       "title": "Comparison Row",

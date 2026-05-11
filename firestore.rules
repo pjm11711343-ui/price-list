@@ -7,6 +7,7 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Helpers
     function isSignedIn() {
       return request.auth != null;
     }
@@ -23,33 +24,64 @@ service cloud.firestore {
       return resource.data;
     }
 
-    // Vendor Validation
+    // Connection Test
+    match /test/connection {
+      allow read: if true;
+    }
+
+    // Vendor Validation Helper
     function isValidVendor(data) {
-      return data.name is string && data.name.size() > 0 && data.name.size() <= 100
-          && data.email is string && data.email.size() <= 100
-          && (data.password == null || (data.password is string && data.password.size() >= 4 && data.password.size() <= 20))
-          && (data.phone == null || data.phone is string)
-          && (data.fax == null || data.fax is string)
-          && (data.representative == null || data.representative is string)
-          && (data.businessNumber == null || data.businessNumber is string)
-          && (data.notes == null || data.notes is string)
-          && (data.priceTableUrl == null || data.priceTableUrl is string)
-          && (data.priceTableFileType == null || data.priceTableFileType is string)
-          && (data.priceTableFileName == null || data.priceTableFileName is string)
-          && (data.useRounding == null || data.useRounding is bool)
-          && (data.masterCustomFlag == null || data.masterCustomFlag is bool)
-          && (data.handlingDetails == null || data.handlingDetails is map);
+      let name = data.get('name', null);
+      // More relaxed validation but still checking for basic types if present
+      return (name == null || name is string)
+          && (data.get('categories', null) == null || data.get('categories', []) is list)
+          && (data.get('updatedAt', null) == null || data.get('updatedAt', timestamp.date(2000, 1, 1)) is timestamp);
+    }
+
+    // Price Validation Helper
+    function isValidPrice(data) {
+      return (data.get('vendorId', null) is string)
+          && (data.get('itemName', null) == null || data.get('itemName', '') is string)
+          && (data.get('itemCode', null) == null || data.get('itemCode', '') is string)
+          && (data.get('category', null) == null || data.get('category', '') is string)
+          && (data.get('spec', null) == null || data.get('spec', '') is string)
+          && (data.get('unit', null) == null || data.get('unit', '') is string)
+          && (data.get('costPrice', null) == null || data.get('costPrice', 0) is number)
+          && (data.get('negoRate', null) == null || data.get('negoRate', 0) is number)
+          && (data.get('unitPrice', null) == null || data.get('unitPrice', 0) is number)
+          && (data.get('updatedAt', null) == null || data.get('updatedAt', timestamp.date(2000, 1, 1)) is timestamp);
+    }
+
+    // Comparison Row Validation Helper
+    function isValidComparisonRow(data) {
+      return data.category is string && data.category.size() > 0
+          && (data.vendor1 == null || data.vendor1 is string)
+          && (data.vendor2 == null || data.vendor2 is string)
+          && (data.vendor3 == null || data.vendor3 is string)
+          && (data.vendor4 == null || data.vendor4 is string)
+          && (data.order is number);
     }
 
     match /vendors/{vendorId} {
-      allow read, write: if true;
+      // For a prototype without forced Auth, we allow read/write.
+      // In a real app, we would restrict based on request.auth.
+      allow read: if true;
+      allow create: if isValidVendor(incoming());
+      allow update: if isValidVendor(incoming());
+      allow delete: if true;
 
       match /prices/{priceId} {
-        allow read, write: if true;
+        allow read: if true;
+        allow create: if isValidPrice(incoming());
+        allow update: if isValidPrice(incoming());
+        allow delete: if true;
       }
 
       match /handling_items/{itemId} {
-        allow read, write: if true;
+        allow read: if true;
+        allow create: if isValidComparisonRow(incoming());
+        allow update: if isValidComparisonRow(incoming());
+        allow delete: if true;
       }
     }
   }
