@@ -1493,10 +1493,10 @@ export default function App() {
     e.preventDefault();
     if (!selectedVendor) return;
     const formData = new FormData(e.currentTarget);
-    const costPrice = Number(formData.get('costPrice') || 0);
-    const negoRate = Number(formData.get('negoRate') || 0);
+    const costPrice = Number(String(formData.get('costPrice') || '0').replace(/,/g, ''));
+    const negoRate = Number(String(formData.get('negoRate') || '0').replace(/,/g, ''));
     const negoType = (formData.get('negoType') as 'percent' | 'sts_pipe') || 'percent';
-    const weight = Number(formData.get('weight') || 0);
+    const weight = Number(String(formData.get('weight') || '0').replace(/,/g, ''));
     const useRounding = formData.get('itemRounding') === 'on';
     const unitPrice = calculatePrice(costPrice, negoRate, useRounding, negoType, weight);
 
@@ -2576,20 +2576,30 @@ export default function App() {
                           </td>
                           <td className="px-4 text-center bg-slate-50/10 font-bold text-slate-400">
                             <input 
-                              type="number"
-                              value={item.weight || 0}
-                              step="any"
-                              onChange={(e) => handleInlinePriceUpdate(item.id, 'weight', Number(e.target.value))}
-                              className="w-12 bg-transparent border-none text-center p-0 outline-none focus:ring-0 rounded appearance-none font-medium text-[10px] opacity-40 hover:opacity-100"
+                              type="text"
+                              inputMode="decimal"
+                              value={(item.weight || 0).toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                              onChange={(e) => {
+                                const val = e.target.value.replace(/,/g, '');
+                                if (val === '' || !isNaN(Number(val))) {
+                                  handleInlinePriceUpdate(item.id, 'weight', val === '' ? 0 : Number(val));
+                                }
+                              }}
+                              className="w-16 bg-transparent border-none text-center p-0 outline-none focus:ring-0 rounded appearance-none font-medium text-[10px] opacity-40 hover:opacity-100"
                               title="참조용 단중 데이터"
                             />
                           </td>
                           <td className={`px-4 text-right font-mono font-medium h-full ${item.negoType === 'sts_pipe' ? 'text-indigo-600 font-bold' : 'text-slate-600'}`}>
                             <input 
-                              type="number"
-                              step="any"
-                              value={item.costPrice}
-                              onChange={(e) => handleInlinePriceUpdate(item.id, 'costPrice', Number(e.target.value))}
+                              type="text"
+                              inputMode="decimal"
+                              value={(item.costPrice || 0).toLocaleString()}
+                              onChange={(e) => {
+                                const val = e.target.value.replace(/,/g, '');
+                                if (val === '' || !isNaN(Number(val))) {
+                                  handleInlinePriceUpdate(item.id, 'costPrice', val === '' ? 0 : Number(val));
+                                }
+                              }}
                               className={`w-full bg-transparent border-none text-right p-0 outline-none focus:ring-0 appearance-none font-bold ${item.negoType === 'sts_pipe' ? 'text-indigo-600' : 'text-slate-600'}`}
                             />
                           </td>
@@ -2948,7 +2958,22 @@ export default function App() {
                     <span className="absolute left-4 top-1/2 -translate-y-1/2 text-lg font-bold text-slate-300">
                       {addItemNegoType === 'sts_pipe' ? 'kg' : '₩'}
                     </span>
-                    <input name="costPrice" type="number" step="any" required placeholder="0" className="w-full rounded-2xl border-2 border-slate-100 bg-slate-50 p-4 pl-10 font-black text-slate-800 focus:border-indigo-500 focus:bg-white focus:outline-none transition-all" />
+                    <input 
+                      name="costPrice" 
+                      type="text" 
+                      inputMode="decimal"
+                      required 
+                      placeholder="0" 
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/,/g, '');
+                        if (val === '' || !isNaN(Number(val))) {
+                          e.target.value = val === '' ? '' : Number(val).toLocaleString();
+                        } else {
+                          e.target.value = e.target.value.replace(/[^0-9.]/g, '');
+                        }
+                      }}
+                      className="w-full rounded-2xl border-2 border-slate-100 bg-slate-50 p-4 pl-10 font-black text-slate-800 focus:border-indigo-500 focus:bg-white focus:outline-none transition-all" 
+                    />
                   </div>
                 </div>
                 <div className="space-y-4">
@@ -2969,13 +2994,21 @@ export default function App() {
                     </div>
                     <div className="relative">
                       {addItemNegoType === 'sts_pipe' && <span className="absolute left-4 top-1/2 -translate-y-1/2 text-lg font-bold text-indigo-200">₩</span>}
-                      <input 
-                        name="negoRate" 
-                        type="number" 
-                        step="any" 
-                        defaultValue="0" 
-                        className={`w-full rounded-2xl border-2 border-indigo-100 bg-indigo-50/30 p-4 font-black text-indigo-700 focus:border-indigo-500 focus:bg-white focus:outline-none transition-all ${addItemNegoType === 'sts_pipe' ? 'pl-10' : ''}`} 
-                      />
+                    <input 
+                      name="negoRate" 
+                      type="text" 
+                      inputMode="decimal"
+                      defaultValue="0" 
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/,/g, '');
+                        if (val === '' || !isNaN(Number(val))) {
+                          e.target.value = val === '' ? '' : Number(val).toLocaleString();
+                        } else {
+                          e.target.value = e.target.value.replace(/[^0-9.]/g, '');
+                        }
+                      }}
+                      className={`w-full rounded-2xl border-2 border-indigo-100 bg-indigo-50/30 p-4 font-black text-indigo-700 focus:border-indigo-500 focus:bg-white focus:outline-none transition-all ${addItemNegoType === 'sts_pipe' ? 'pl-10' : ''}`} 
+                    />
                     </div>
                   </div>
                   {addItemNegoType === 'sts_pipe' && (
@@ -3473,9 +3506,15 @@ export default function App() {
                   </span>
                   <div className="relative">
                     <input 
-                      type="number"
-                      value={bulkAdjustValue}
-                      onChange={(e) => setBulkAdjustValue(Number(e.target.value))}
+                      type="text"
+                      inputMode="decimal"
+                      value={bulkAdjustValue.toLocaleString()}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/,/g, '');
+                        if (val === '' || !isNaN(Number(val))) {
+                          setBulkAdjustValue(val === '' ? 0 : Number(val));
+                        }
+                      }}
                       placeholder="예: 5 (5% 추가 네고)"
                       autoFocus
                       className="w-full rounded-2xl border-2 border-slate-100 bg-slate-50 p-4 font-bold text-slate-800 focus:border-indigo-500 focus:bg-white focus:outline-none transition-all pr-12 text-lg"
@@ -3530,10 +3569,10 @@ export default function App() {
                       category: formData.get('category') as string,
                       spec: formData.get('spec') as string,
                       unit: formData.get('unit') as string,
-                      costPrice: Number(formData.get('costPrice') || 0),
-                      negoRate: Number(formData.get('negoRate') || 0),
+                      costPrice: Number(String(formData.get('costPrice') || '0').replace(/,/g, '')),
+                      negoRate: Number(String(formData.get('negoRate') || '0').replace(/,/g, '')),
                       negoType: formData.get('negoType') as 'percent' | 'sts_pipe',
-                      weight: Number(formData.get('weight') || 0),
+                      weight: Number(String(formData.get('weight') || '0').replace(/,/g, '')),
                       useRounding: formData.get('useRounding') === 'on',
                       maker: formData.get('maker') as string,
                       remarks: formData.get('remarks') as string,
@@ -3568,7 +3607,22 @@ export default function App() {
                     
                     <div className="space-y-2">
                       <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">협가 / 단중 *</label>
-                      <input name="costPrice" type="number" step="any" defaultValue={item.costPrice} required className="w-full rounded-xl border-2 border-indigo-50 bg-indigo-50/10 p-4 font-bold text-indigo-700 focus:border-indigo-500 outline-none" />
+                      <input 
+                        name="costPrice" 
+                        type="text" 
+                        inputMode="decimal"
+                        defaultValue={item.costPrice?.toLocaleString()} 
+                        required 
+                        onChange={(e) => {
+                          const val = e.target.value.replace(/,/g, '');
+                          if (val === '' || !isNaN(Number(val))) {
+                            e.target.value = val === '' ? '' : Number(val).toLocaleString();
+                          } else {
+                            e.target.value = e.target.value.replace(/[^0-9.]/g, '');
+                          }
+                        }}
+                        className="w-full rounded-xl border-2 border-indigo-50 bg-indigo-50/10 p-4 font-bold text-indigo-700 focus:border-indigo-500 outline-none" 
+                      />
                       <p className="text-[9px] text-slate-400">※ STS 방식일 경우 단중을, 아닐 경우 협가(원)를 입력하세요.</p>
                     </div>
                     
@@ -3579,13 +3633,42 @@ export default function App() {
                           <option value="percent">네고율 (%)</option>
                           <option value="sts_pipe">STS (KG단가)</option>
                         </select>
-                        <input name="negoRate" type="number" step="any" defaultValue={item.negoRate} required className="flex-1 rounded-xl border-2 border-indigo-100 bg-indigo-50/30 p-4 font-bold text-indigo-700 focus:border-indigo-500 outline-none" />
+                        <input 
+                          name="negoRate" 
+                          type="text" 
+                          inputMode="decimal"
+                          defaultValue={item.negoRate?.toLocaleString()} 
+                          required 
+                          onChange={(e) => {
+                            const val = e.target.value.replace(/,/g, '');
+                            if (val === '' || !isNaN(Number(val))) {
+                              e.target.value = val === '' ? '' : Number(val).toLocaleString();
+                            } else {
+                              e.target.value = e.target.value.replace(/[^0-9.]/g, '');
+                            }
+                          }}
+                          className="flex-1 rounded-xl border-2 border-indigo-100 bg-indigo-50/30 p-4 font-bold text-indigo-700 focus:border-indigo-500 outline-none" 
+                        />
                       </div>
                     </div>
 
                     <div className="space-y-2">
                       <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">참조 단중 (KG/M)</label>
-                      <input name="weight" type="number" step="any" defaultValue={item.weight} className="w-full rounded-xl border-2 border-slate-100 bg-slate-50 p-4 font-medium focus:border-indigo-500 outline-none" />
+                      <input 
+                        name="weight" 
+                        type="text" 
+                        inputMode="decimal"
+                        defaultValue={item.weight?.toLocaleString()} 
+                        onChange={(e) => {
+                          const val = e.target.value.replace(/,/g, '');
+                          if (val === '' || !isNaN(Number(val))) {
+                            e.target.value = val === '' ? '' : Number(val).toLocaleString();
+                          } else {
+                            e.target.value = e.target.value.replace(/[^0-9.]/g, '');
+                          }
+                        }}
+                        className="w-full rounded-xl border-2 border-slate-100 bg-slate-50 p-4 font-medium focus:border-indigo-500 outline-none" 
+                      />
                     </div>
 
                     <div className="space-y-2 flex items-center pt-6">
