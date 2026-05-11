@@ -136,6 +136,8 @@ export default function App() {
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [isViewingDeletedVendors, setIsViewingDeletedVendors] = useState(false);
   const [vendorSortMode, setVendorSortMode] = useState<'name' | 'manual'>('name');
+  const [priceSortField, setPriceSortField] = useState<'itemName' | 'spec' | 'order'>('order');
+  const [priceSortOrder, setPriceSortOrder] = useState<'asc' | 'desc'>('asc');
   const [errorInfo, setErrorInfo] = useState<FirestoreErrorInfo | null>(null);
   const [isSeedModalOpen, setIsSeedModalOpen] = useState(false);
   const [bulkFile, setBulkFile] = useState<File | null>(null);
@@ -1101,20 +1103,10 @@ export default function App() {
   // Fetch Prices for selected vendor
   useEffect(() => {
     if (selectedVendor) {
-      const q = query(
-        collection(db, 'vendors', selectedVendor.id, 'prices'), 
-        orderBy('itemName', 'asc')
-      );
+      const q = query(collection(db, 'vendors', selectedVendor.id, 'prices'));
       const unsubscribe = onSnapshot(q, (snapshot) => {
         const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PriceItem));
-        // Ensure sorting in frontend as well to be robust (in case index is still building)
-        const sortedData = [...data].sort((a, b) => {
-          const nameCompare = a.itemName.localeCompare(b.itemName, 'ko');
-          if (nameCompare !== 0) return nameCompare;
-          // Use numeric sorting for specs (e.g., 10A < 50A < 100A)
-          return (a.spec || '').localeCompare(b.spec || '', undefined, { numeric: true, sensitivity: 'base' });
-        });
-        setPriceItems(sortedData);
+        setPriceItems(data);
       }, (error) => {
         handleFirestoreError(error, OperationType.LIST, `vendors/${selectedVendor.id}/prices`);
       });
@@ -1174,6 +1166,44 @@ export default function App() {
       return timeB - timeA;
     });
   }, [vendors, vendorSortMode]);
+
+  const sortedPriceItems = useMemo(() => {
+    let items = [...priceItems];
+    
+    // Sort by selected field
+    items.sort((a, b) => {
+      let result = 0;
+      if (priceSortField === 'itemName') {
+        result = a.itemName.localeCompare(b.itemName, 'ko');
+      } else if (priceSortField === 'spec') {
+        result = (a.spec || '').localeCompare(b.spec || '', undefined, { numeric: true, sensitivity: 'base' });
+      } else {
+        // Default order sorting
+        const orderA = a.order ?? 0;
+        const orderB = b.order ?? 0;
+        result = orderA - orderB;
+      }
+      
+      // Secondary sort for stability
+      if (result === 0) {
+        if (priceSortField !== 'itemName') result = a.itemName.localeCompare(b.itemName, 'ko');
+        if (result === 0 && priceSortField !== 'spec') result = (a.spec || '').localeCompare(b.spec || '', undefined, { numeric: true, sensitivity: 'base' });
+      }
+      
+      return priceSortOrder === 'asc' ? result : -result;
+    });
+    
+    return items;
+  }, [priceItems, priceSortField, priceSortOrder]);
+
+  const handlePriceSort = (field: 'itemName' | 'spec' | 'order') => {
+    if (priceSortField === field) {
+      setPriceSortOrder(priceSortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      setPriceSortField(field);
+      setPriceSortOrder('asc');
+    }
+  };
 
   const sortedVendors = useMemo(() => {
     return baseSortedVendors
@@ -2006,27 +2036,22 @@ export default function App() {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-y-4 gap-x-8 pt-2">
-                       <div className="space-y-1">
-                          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">대표자</span>
-                          <p className="text-sm font-bold text-slate-700">{selectedVendor.representative || '-'}</p>
-                       </div>
-                       <div className="space-y-1">
-                          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">전화번호</span>
-                          <p className="text-sm font-bold text-slate-700">{selectedVendor.phone || '-'}</p>
-                       </div>
-                       <div className="space-y-1">
-                          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">팩스번호</span>
-                          <p className="text-sm font-bold text-slate-700">{selectedVendor.fax || '-'}</p>
-                       </div>
-                       <div className="space-y-1">
-                          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">사업자번호</span>
-                          <p className="text-sm font-bold text-slate-700 tracking-tighter">{selectedVendor.businessNumber || '-'}</p>
-                       </div>
-                       <div className="space-y-1">
-                          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">이메일</span>
-                          <p className="text-sm font-bold text-indigo-600 underline decoration-indigo-200 underline-offset-4">{selectedVendor.email || '-'}</p>
-                       </div>
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pt-1.5 border-t border-slate-100">
+                      {[
+                        { label: '대표자', value: selectedVendor.representative },
+                        { label: '전화', value: selectedVendor.phone },
+                        { label: '팩스', value: selectedVendor.fax },
+                        { label: '사업자번호', value: selectedVendor.businessNumber },
+                        { label: '이메일', value: selectedVendor.email }
+                      ].map((item, idx) => (
+                        <div key={idx} className="flex items-center gap-2">
+                          <span className="text-[9px] font-black text-slate-400 uppercase tracking-tight">{item.label}</span>
+                          <span className={`text-[11px] font-bold ${item.label === '이메일' ? 'text-indigo-600' : 'text-slate-600'}`}>
+                            {item.value || '-'}
+                          </span>
+                          {idx < 4 && <div className="h-2 w-[1px] bg-slate-200 ml-2" />}
+                        </div>
+                      ))}
                     </div>
                   </div>
 
@@ -2085,21 +2110,21 @@ export default function App() {
 
               {/* TOOLBAR */}
               {canManageItems && (
-                <div className="h-14 border-b border-slate-200 flex items-center justify-between px-6 shrink-0 bg-white z-20 shadow-sm shadow-slate-100">
-                <div className="flex items-center gap-6">
-                  <div className="flex items-center gap-4">
-                    <span className="text-xs font-bold text-indigo-600 whitespace-nowrap">선택 {selectedPriceIds.size}개</span>
-                    <div className="h-4 w-[1px] bg-slate-200" />
+                <div className="h-11 border-b border-slate-200 flex items-center justify-between px-6 shrink-0 bg-white z-20 shadow-sm shadow-slate-100">
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-3">
+                    <span className="text-[10px] font-bold text-indigo-600 whitespace-nowrap">선택 {selectedPriceIds.size}개</span>
+                    <div className="h-3 w-[1px] bg-slate-200" />
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-medium text-slate-500 whitespace-nowrap">단가 가감</span>
+                      <span className="text-[10px] font-medium text-slate-500 whitespace-nowrap">단가 가감</span>
                       <div className="relative flex items-center">
                         <input 
                           type="number"
                           value={bulkNegoValue}
                           onChange={(e) => setBulkNegoValue(Number(e.target.value))}
-                          className="w-16 h-8 bg-slate-50 border border-slate-200 rounded px-2 pr-5 text-xs font-bold text-center outline-none focus:ring-1 focus:ring-indigo-500 transition-all hover:bg-slate-100"
+                          className="w-14 h-7 bg-slate-50 border border-slate-200 rounded px-2 pr-4 text-[11px] font-bold text-center outline-none focus:ring-1 focus:ring-indigo-500 transition-all hover:bg-slate-100"
                         />
-                        <span className="absolute right-1.5 text-[10px] text-slate-400 font-bold">%</span>
+                        <span className="absolute right-1 text-[9px] text-slate-400 font-bold">%</span>
                       </div>
                     </div>
                     <button 
@@ -2403,7 +2428,7 @@ export default function App() {
 
                 <table className="w-full border-collapse table-fixed min-w-[1200px]">
                   <thead className="sticky top-0 bg-white z-10 border-b border-slate-200">
-                    <tr className="text-[11px] font-bold text-slate-400 uppercase tracking-tight h-10">
+                    <tr className="text-[10px] font-bold text-slate-400 uppercase tracking-tight h-8">
                       <th className="w-10 px-4 text-center relative border-r border-slate-50">
                         <input 
                           type="checkbox" 
@@ -2419,15 +2444,25 @@ export default function App() {
                           className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-indigo-400 transition-colors bg-transparent z-10"
                         />
                       </th>
-                      <th className="px-4 text-left font-semibold relative border-r border-slate-50 group/th" style={{ width: columnWidths.itemName }}>
-                        품명
+                      <th className="px-4 text-left font-semibold relative border-r border-slate-50 group/th cursor-pointer hover:bg-slate-50 transition-colors" style={{ width: columnWidths.itemName }} onClick={() => handlePriceSort('itemName')}>
+                        <div className="flex items-center gap-1">
+                          품명
+                          {priceSortField === 'itemName' && (
+                            <ArrowUpDown className={`h-3 w-3 ${priceSortOrder === 'asc' ? 'text-indigo-500' : 'text-rose-500'}`} />
+                          )}
+                        </div>
                         <div 
                           onMouseDown={(e) => startResize(e, 'itemName')}
                           className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-indigo-400 transition-colors bg-transparent z-10"
                         />
                       </th>
-                      <th className="px-4 text-left font-semibold relative border-r border-slate-50 group/th" style={{ width: columnWidths.spec }}>
-                        규격
+                      <th className="px-4 text-left font-semibold relative border-r border-slate-50 group/th cursor-pointer hover:bg-slate-50 transition-colors" style={{ width: columnWidths.spec }} onClick={() => handlePriceSort('spec')}>
+                        <div className="flex items-center gap-1">
+                          규격
+                          {priceSortField === 'spec' && (
+                            <ArrowUpDown className={`h-3 w-3 ${priceSortOrder === 'asc' ? 'text-indigo-500' : 'text-rose-500'}`} />
+                          )}
+                        </div>
                         <div 
                           onMouseDown={(e) => startResize(e, 'spec')}
                           className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-indigo-400 transition-colors bg-transparent z-10"
@@ -2509,8 +2544,8 @@ export default function App() {
                       )}
                     </tr>
                   </thead>
-                  <tbody className="bg-white divide-y divide-slate-100 text-[13px]">
-                    {priceItems.filter(item => {
+                  <tbody className="bg-white divide-y divide-slate-100 text-[12px]">
+                    {sortedPriceItems.filter(item => {
                       const matchesSearch = item.itemName.toLowerCase().includes(searchTerm.toLowerCase()) || 
                                            (item.itemCode && item.itemCode.toLowerCase().includes(searchTerm.toLowerCase()));
                       const matchesCategory = activeCategory === '전체' || item.category === activeCategory;
@@ -2520,7 +2555,7 @@ export default function App() {
                       return (
                         <tr 
                           key={item.id} 
-                          className={`hover:bg-indigo-50/20 group transition-colors h-10 ${selectedPriceIds.has(item.id) ? 'bg-indigo-50/10' : ''}`}
+                          className={`hover:bg-indigo-50/20 group transition-colors h-[34px] ${selectedPriceIds.has(item.id) ? 'bg-indigo-50/10' : ''}`}
                         >
                           <td className="px-4 text-center">
                             <input 
