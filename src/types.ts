@@ -35,7 +35,7 @@ export interface PriceItem {
   vendorId: string;
   itemCode?: string; // 품번
   itemName: string;  // 품명
-  category?: string; // 카테고리 (밸브류, 피팅류 등)
+  category?: string; // 카테고리 (밸브, 피팅, STS 파이프 등)
   spec?: string;
   unit?: string;
   costPrice: number; // 현단가 (협가 또는 KG단가)

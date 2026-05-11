@@ -168,7 +168,7 @@ export default function App() {
   const [isApprovalsModalOpen, setIsApprovalsModalOpen] = useState(false);
 
   const [activeCategory, setActiveCategory] = useState('전체');
-  const [categories, setCategories] = useState<string[]>(['밸브류', '피팅류', '파이프', '프랜지']);
+  const [categories, setCategories] = useState<string[]>(['밸브', '피팅', '파이프', 'STS 파이프', '프랜지', '기타']);
   const [bulkNegoValue, setBulkNegoValue] = useState(5);
   const [columnWidths, setColumnWidths] = useState({
     itemCode: 100,
@@ -184,6 +184,15 @@ export default function App() {
     change: 100
   });
   const [resizing, setResizing] = useState<keyof typeof columnWidths | null>(null);
+
+  useEffect(() => {
+    if (selectedVendor?.categories && selectedVendor.categories.length > 0) {
+      setCategories(selectedVendor.categories);
+    } else {
+      setCategories(['밸브', '피팅', '파이프', 'STS 파이프', '프랜지', '기타']);
+    }
+  }, [selectedVendor?.id, selectedVendor?.categories]);
+
   useEffect(() => {
     if (!isAdminMode) {
       setPendingUpdates([]);
@@ -690,7 +699,7 @@ export default function App() {
   const downloadPriceTemplate = () => {
     const templateData = [
       {
-        '카테고리': '밸브류',
+        '카테고리': '밸브',
         '품명': 'KS 10K 플랜지형 볼밸브',
         '규격': '50A',
         '품번': 'VB-KS10K-50',
@@ -702,7 +711,7 @@ export default function App() {
         '비고': '신규 모델'
       },
       {
-        '카테고리': '피팅류',
+        '카테고리': '피팅',
         '품명': '90도 엘보',
         '규격': '100A SCH40',
         '품번': 'FT-EL90-100',
@@ -714,7 +723,7 @@ export default function App() {
         '비고': ''
       },
       {
-        '카테고리': '파이프',
+        '카테고리': 'STS 파이프',
         '품명': 'STS304 PIPE 20A',
         '규격': '20A SCH10',
         '품번': 'PP-STS-20A',
@@ -998,7 +1007,7 @@ export default function App() {
       notes: formData.get('notes') as string,
       roundingMethod: formData.get('useRounding') === 'on' ? 'round' : 'none',
       masterCustomFlag: formData.get('masterCustomFlag') === 'on',
-      categories: ['밸브류', '피팅류', '파이프', '프랜지'],
+      categories: ['밸브', '피팅', '파이프', 'STS 파이프', '프랜지', '기타'],
       priceTableUrl,
       priceTableFileType,
       priceTableFileName,
