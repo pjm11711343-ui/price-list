@@ -24,7 +24,8 @@ import {
   ChevronUp,
   ChevronDown,
   Info,
-  Link as LinkIcon
+  Link as LinkIcon,
+  ArrowUpDown
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import * as XLSX from 'xlsx';
@@ -131,6 +132,7 @@ export default function App() {
   const [isViewingPriceTable, setIsViewingPriceTable] = useState(false);
   const [isEditingVendorInfo, setIsEditingVendorInfo] = useState(false);
   const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const [vendorSortMode, setVendorSortMode] = useState<'name' | 'recent'>('recent');
   const [errorInfo, setErrorInfo] = useState<FirestoreErrorInfo | null>(null);
   const [isSeedModalOpen, setIsSeedModalOpen] = useState(false);
   const [bulkFile, setBulkFile] = useState<File | null>(null);
@@ -1131,12 +1133,21 @@ export default function App() {
       return name.replace(/\(주\)|주식회사|\(주\s?\)|주\s?\)/g, '').trim();
     };
 
+    if (vendorSortMode === 'name') {
+      return [...vendors].sort((a, b) => {
+        const nameA = cleanName(a.name);
+        const nameB = cleanName(b.name);
+        return nameA.localeCompare(nameB, 'ko');
+      });
+    }
+
+    // Default: Sort by newest first
     return [...vendors].sort((a, b) => {
-      const nameA = cleanName(a.name);
-      const nameB = cleanName(b.name);
-      return nameA.localeCompare(nameB, 'ko');
+      const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
+      const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
+      return timeB - timeA;
     });
-  }, [vendors]);
+  }, [vendors, vendorSortMode]);
 
   const sortedVendors = useMemo(() => {
     return baseSortedVendors
@@ -1685,12 +1696,6 @@ export default function App() {
                   <span className="text-sm font-bold text-slate-400">전용 포탈</span>
                   <span className="text-sm font-black text-indigo-600">{selectedVendor.name}</span>
                 </div>
-                <button 
-                  onClick={() => isAdminMode ? setIsAdminMode(false) : setShowAdminLogin(true)}
-                  className={`text-[10px] font-bold px-2 py-1 rounded transition-colors ${isAdminMode ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-400 hover:bg-slate-200 hover:text-slate-600'}`}
-                >
-                  {isAdminMode ? '관리모드 활성' : '관리자'}
-                </button>
               </div>
             )}
           </nav>
@@ -1736,6 +1741,13 @@ export default function App() {
                 </h2>
                 {isAdminMode && (
                   <div className="flex items-center gap-1">
+                    <button 
+                      onClick={() => setVendorSortMode(prev => prev === 'name' ? 'recent' : 'name')}
+                      className={`p-1.5 rounded-md transition-colors ${vendorSortMode === 'name' ? 'text-indigo-600 bg-indigo-50' : 'text-slate-400 hover:bg-slate-200'}`}
+                      title="가나다순 정렬 토글"
+                    >
+                      <ArrowUpDown className="h-4 w-4" />
+                    </button>
                     <button 
                       onClick={handleBackupAllData}
                       className="p-1.5 hover:bg-slate-200 rounded-md transition-colors text-slate-400 hover:text-indigo-600"
@@ -1947,6 +1959,13 @@ export default function App() {
                         >
                           <Edit2 className="h-3.5 w-3.5" />
                           거래처 정보 수정
+                        </button>
+                        <button 
+                          onClick={() => setIsChangingPassword(true)}
+                          className="flex items-center gap-2 px-5 py-2.5 bg-white text-slate-700 rounded-xl text-xs font-bold hover:bg-slate-50 transition-all border border-slate-200 active:scale-95 shadow-sm"
+                        >
+                          <Lock className="h-3.5 w-3.5" />
+                          비밀번호 변경
                         </button>
                         {isAdminMode && (
                           <>
