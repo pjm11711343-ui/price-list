@@ -372,8 +372,8 @@ export default function App() {
     let price = 0;
     
     if (type === 'sts_pipe') {
-      // STS PIPE: 단중(KG/M) * KG단가(costPrice)
-      price = (weight || 0) * cost;
+      // STS PIPE: 단중(costPrice) * KG단가(rate)
+      price = cost * rate;
     } else {
       // Default: Percentage discount
       price = cost * (1 - (rate / 100));
@@ -636,12 +636,12 @@ export default function App() {
         '규격': '20A SCH10',
         '품번': 'PP-STS-20A',
         '단위': 'M',
-        '네고치': 0,
+        '네고치': 4500,
         '네고방식': 'STS',
         '단중': 1.62,
-        '협가': 4500,
+        '협가': 1.62,
         '제조사': 'MS-Metal',
-        '비고': 'STS PIPE 단중식'
+        '비고': 'STS PIPE (협가=단중, 네고치=KG단가)'
       }
     ];
 
@@ -1871,21 +1871,21 @@ export default function App() {
                         />
                       </th>
                       <th className="px-4 text-center font-semibold bg-slate-50/80 relative border-r border-slate-50 group/th" style={{ width: columnWidths.negoRate }}>
-                        네고율/방식
+                        네고율 / KG단가
                         <div 
                           onMouseDown={(e) => startResize(e, 'negoRate')}
                           className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-indigo-400 transition-colors bg-transparent z-10"
                         />
                       </th>
                       <th className="px-4 text-center font-semibold bg-slate-50/80 relative border-r border-slate-50 group/th" style={{ width: columnWidths.weight }}>
-                        단중 (KG/M)
+                        단중 (참조)
                         <div 
                           onMouseDown={(e) => startResize(e, 'weight')}
                           className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-indigo-400 transition-colors bg-transparent z-10"
                         />
                       </th>
                       <th className="px-4 text-right font-semibold relative border-r border-slate-50 group/th" style={{ width: columnWidths.costPrice }}>
-                        협가
+                        협가 / 단중
                         <div 
                           onMouseDown={(e) => startResize(e, 'costPrice')}
                           className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-indigo-400 transition-colors bg-transparent z-10"
@@ -1956,40 +1956,36 @@ export default function App() {
                           </td>
                           <td className="px-4 text-center bg-slate-50/10 font-bold text-indigo-600">
                              <div className="flex items-center justify-center gap-0.5">
-                                {item.negoType !== 'sts_pipe' ? (
-                                  <input 
-                                    type="number"
-                                    value={item.negoRate}
-                                    onChange={(e) => handleInlinePriceUpdate(item.id, 'negoRate', Number(e.target.value))}
-                                    className="w-12 bg-transparent border-none text-center p-0 outline-none focus:ring-0 appearance-none font-bold text-xs"
-                                  />
-                                ) : (
-                                  <span className="w-12 text-slate-300">-</span>
-                                )}
+                                <input 
+                                  type="number"
+                                  value={item.negoRate}
+                                  onChange={(e) => handleInlinePriceUpdate(item.id, 'negoRate', Number(e.target.value))}
+                                  className={`w-12 bg-transparent border-none text-center p-0 outline-none focus:ring-0 appearance-none font-bold text-xs ${item.negoType === 'sts_pipe' ? 'text-indigo-800' : ''}`}
+                                  placeholder={item.negoType === 'sts_pipe' ? "단가" : "%"}
+                                />
                                 <button 
                                   onClick={() => {
                                     const nextType = item.negoType === 'percent' ? 'sts_pipe' : 'percent';
                                     handleInlinePriceUpdate(item.id, 'negoType', nextType);
                                   }}
-                                  className="text-[10px] font-medium opacity-50 hover:opacity-100 hover:text-indigo-600 transition-all cursor-pointer bg-slate-100 px-1 rounded"
+                                  className="text-[10px] font-medium opacity-50 hover:opacity-100 hover:text-indigo-600 transition-all cursor-pointer bg-slate-100 px-1 rounded shrink-0"
                                   title="네고 방식 변경 (% <-> STS)"
                                 >
                                   {item.negoType === 'sts_pipe' ? 'STS' : '%'}
                                 </button>
                              </div>
                           </td>
-                          <td className="px-4 text-center bg-slate-50/10 font-bold text-slate-600">
-                            {item.negoType === 'sts_pipe' ? (
-                              <input 
-                                type="number"
-                                value={item.weight || 0}
-                                step="any"
-                                onChange={(e) => handleInlinePriceUpdate(item.id, 'weight', Number(e.target.value))}
-                                className="w-12 bg-transparent border-none text-center p-0 outline-none focus:ring-1 focus:ring-indigo-100 rounded appearance-none font-bold text-xs"
-                              />
-                            ) : '-'}
+                          <td className="px-4 text-center bg-slate-50/10 font-bold text-slate-400">
+                            <input 
+                              type="number"
+                              value={item.weight || 0}
+                              step="any"
+                              onChange={(e) => handleInlinePriceUpdate(item.id, 'weight', Number(e.target.value))}
+                              className="w-12 bg-transparent border-none text-center p-0 outline-none focus:ring-0 rounded appearance-none font-medium text-[10px] opacity-40 hover:opacity-100"
+                              title="참조용 단중 데이터"
+                            />
                           </td>
-                          <td className="px-4 text-right font-mono font-medium text-slate-600 h-full">
+                          <td className={`px-4 text-right font-mono font-medium h-full ${item.negoType === 'sts_pipe' ? 'text-indigo-600 font-bold' : 'text-slate-600'}`}>
                             {item.costPrice.toLocaleString()}
                           </td>
                           <td className="px-4 text-right font-mono font-bold text-emerald-600/80 bg-slate-50/10 text-xs">
@@ -2311,16 +2307,22 @@ export default function App() {
                   <input name="unit" placeholder="kg, ea, m 등" className="w-full rounded-2xl border-2 border-slate-100 bg-slate-50 p-4 font-bold text-slate-800 focus:border-indigo-500 focus:bg-white focus:outline-none transition-all" />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">협가 (Negotiated Price) *</label>
+                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+                    {addItemNegoType === 'sts_pipe' ? '단중 (Weight: KG/M) *' : '협가 (Negotiated Price) *'}
+                  </label>
                    <div className="relative">
-                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-lg font-bold text-slate-300">₩</span>
-                    <input name="costPrice" type="number" required placeholder="0" className="w-full rounded-2xl border-2 border-slate-100 bg-slate-50 p-4 pl-10 font-black text-slate-800 focus:border-indigo-500 focus:bg-white focus:outline-none transition-all" />
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-lg font-bold text-slate-300">
+                      {addItemNegoType === 'sts_pipe' ? 'kg' : '₩'}
+                    </span>
+                    <input name="costPrice" type="number" step="any" required placeholder="0" className="w-full rounded-2xl border-2 border-slate-100 bg-slate-50 p-4 pl-10 font-black text-slate-800 focus:border-indigo-500 focus:bg-white focus:outline-none transition-all" />
                   </div>
                 </div>
                 <div className="space-y-4">
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
-                      <label className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-600">네고 방식 & 율/금액/방식 *</label>
+                      <label className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-600">
+                        {addItemNegoType === 'sts_pipe' ? 'KG 단가 (Price per KG) *' : '네고 방식 & 율/금액/방식 *'}
+                      </label>
                       <select 
                         name="negoType" 
                         value={addItemNegoType}
@@ -2331,19 +2333,19 @@ export default function App() {
                         <option value="sts_pipe">STS PIPE (단중식)</option>
                       </select>
                     </div>
-                    {addItemNegoType === 'sts_pipe' ? (
-                      <div className="space-y-1">
-                        <label className="text-[9px] font-bold text-slate-400">단중 (Weight: KG/M)</label>
-                        <input name="weight" type="number" step="any" placeholder="0.00" className="w-full rounded-xl border-2 border-indigo-100 bg-indigo-50/10 p-3 font-bold text-indigo-700 focus:border-indigo-500 transition-all" />
-                      </div>
-                    ) : (
-                      <div className="relative">
-                        <input name="negoRate" type="number" step="any" defaultValue="0" className="w-full rounded-2xl border-2 border-indigo-100 bg-indigo-50/30 p-4 font-black text-indigo-700 focus:border-indigo-500 focus:bg-white focus:outline-none transition-all" />
-                      </div>
-                    )}
+                    <div className="relative">
+                      {addItemNegoType === 'sts_pipe' && <span className="absolute left-4 top-1/2 -translate-y-1/2 text-lg font-bold text-indigo-200">₩</span>}
+                      <input 
+                        name="negoRate" 
+                        type="number" 
+                        step="any" 
+                        defaultValue="0" 
+                        className={`w-full rounded-2xl border-2 border-indigo-100 bg-indigo-50/30 p-4 font-black text-indigo-700 focus:border-indigo-500 focus:bg-white focus:outline-none transition-all ${addItemNegoType === 'sts_pipe' ? 'pl-10' : ''}`} 
+                      />
+                    </div>
                   </div>
                   {addItemNegoType === 'sts_pipe' && (
-                    <p className="text-[9px] text-indigo-400 font-medium">※ STS PIPE: 단중(KG/M) × KG단가(협가)로 구매단가가 자동계산됩니다.</p>
+                    <p className="text-[9px] text-indigo-400 font-medium">※ STS PIPE: 단중(협가란에 입력) × KG단가(네고란에 입력)로 구매단가가 자동계산됩니다.</p>
                   )}
                 </div>
                 <div className="col-span-full grid grid-cols-1 md:grid-cols-2 gap-6">
