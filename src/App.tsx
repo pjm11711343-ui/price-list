@@ -2296,6 +2296,10 @@ export default function App() {
 
               {/* CATEGORY TABS */}
               <div className="flex items-center gap-1 px-6 py-2 bg-[#F8F9FA] border-b border-slate-100 shrink-0 overflow-x-auto no-scrollbar">
+                <div className="flex items-center gap-2 mr-3 shrink-0 py-1 border-r border-slate-200 pr-3">
+                  <div className="w-1 h-3.5 bg-indigo-500 rounded-full" />
+                  <span className="text-[11px] font-black text-slate-800 tracking-tight">취급품목</span>
+                </div>
                 {['전체', ...categories].map(cat => (
                   <div key={cat} className="relative group/cat">
                     <button
