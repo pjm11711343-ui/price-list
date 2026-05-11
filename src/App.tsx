@@ -50,7 +50,7 @@ import {
   deleteObject
 } from 'firebase/storage';
 import { db, auth, storage } from './lib/firebase';
-import { Vendor, PriceItem, ComparisonRow } from './types';
+import { Vendor, PriceItem, ComparisonRow, PendingPriceUpdate } from './types';
 import { ALL_VENDORS } from './data/seedData';
 
 // Error Handling Types
@@ -164,6 +164,8 @@ export default function App() {
   const [usdToKrw, setUsdToKrw] = useState<number>(1350);
   const [lastRateUpdate, setLastRateUpdate] = useState<string>("");
   const [savingMatrixId, setSavingMatrixId] = useState<string | null>(null);
+  const [pendingUpdates, setPendingUpdates] = useState<PendingPriceUpdate[]>([]);
+  const [isApprovalsModalOpen, setIsApprovalsModalOpen] = useState(false);
 
   const [activeCategory, setActiveCategory] = useState('전체');
   const [categories, setCategories] = useState<string[]>(['밸브류', '피팅류', '파이프', '프랜지']);
@@ -183,12 +185,22 @@ export default function App() {
   });
   const [resizing, setResizing] = useState<keyof typeof columnWidths | null>(null);
   useEffect(() => {
-    if (selectedVendor?.categories) {
-      setCategories(selectedVendor.categories);
-    } else {
-      setCategories(['밸브류', '피팅류', '파이프', '프랜지']);
+    if (!isAdminMode) {
+      setPendingUpdates([]);
+      return;
     }
-  }, [selectedVendor?.id, selectedVendor?.categories]);
+    
+    const q = query(collection(db, 'pending_updates'), orderBy('requestedAt', 'desc'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const updates = snapshot.docs.map(doc => ({ 
+        id: doc.id, 
+        ...doc.data() 
+      } as PendingPriceUpdate));
+      setPendingUpdates(updates);
+    });
+    
+    return () => unsubscribe();
+  }, [isAdminMode]);
 
   const updateVendorCategories = async (newCategories: string[]) => {
     if (!selectedVendor) return;
@@ -329,9 +341,7 @@ export default function App() {
       const item = priceItems.find(p => p.id === id);
       if (!item) return;
 
-      const updates: any = {
-        updatedAt: serverTimestamp()
-      };
+      const updates: any = {};
 
       if (field === 'costPrice') {
         const newCost = Number(value);
@@ -362,9 +372,82 @@ export default function App() {
         updates[field] = value;
       }
 
-      await updateDoc(doc(db, 'vendors', selectedVendor.id, 'prices', id), updates);
+      if (isDeepLinkMode && !isAdminMode) {
+        // Create pending update
+        await addDoc(collection(db, 'pending_updates'), {
+          vendorId: selectedVendor.id,
+          priceItemId: id,
+          itemName: item.itemName,
+          oldData: { [field]: item[field as keyof PriceItem] },
+          newData: updates,
+          status: 'pending',
+          requestedBy: '업체(링크)',
+          requestedAt: serverTimestamp()
+        });
+        
+        // Mark item as having pending update
+        await updateDoc(doc(db, 'vendors', selectedVendor.id, 'prices', id), {
+          hasPendingUpdate: true
+        });
+        
+        alert('단가 변경 요청이 전송되었습니다. 관리자 승인 후 반영됩니다.');
+      } else {
+        await updateDoc(doc(db, 'vendors', selectedVendor.id, 'prices', id), {
+          ...updates,
+          updatedAt: serverTimestamp()
+        });
+      }
     } catch (error) {
       console.error("Error updating price inline:", error);
+    }
+  };
+
+  const handleApproveUpdate = async (update: PendingPriceUpdate) => {
+    try {
+      const batch = writeBatch(db);
+      
+      // 1. Apply to price item
+      batch.update(doc(db, 'vendors', update.vendorId, 'prices', update.priceItemId), {
+        ...update.newData,
+        updatedAt: serverTimestamp(),
+        hasPendingUpdate: false
+      });
+      
+      // 2. Mark update as approved
+      batch.update(doc(db, 'pending_updates', update.id), {
+        status: 'approved',
+        approvedAt: serverTimestamp()
+      });
+      
+      await batch.commit();
+    } catch (error) {
+      console.error("Approval error:", error);
+      alert("승인 처리 중 오류가 발생했습니다.");
+    }
+  };
+
+  const handleRejectUpdate = async (updateId: string) => {
+    try {
+      const update = pendingUpdates.find(u => u.id === updateId);
+      if (!update) return;
+
+      const batch = writeBatch(db);
+      
+      // 1. Mark as rejected
+      batch.update(doc(db, 'pending_updates', updateId), {
+        status: 'rejected',
+        approvedAt: serverTimestamp()
+      });
+
+      // 2. Clear flag on price item
+      batch.update(doc(db, 'vendors', update.vendorId, 'prices', update.priceItemId), {
+        hasPendingUpdate: false
+      });
+
+      await batch.commit();
+    } catch (error) {
+      console.error("Rejection error:", error);
+      alert("거절 처리 중 오류가 발생했습니다.");
     }
   };
 
@@ -1211,12 +1294,36 @@ export default function App() {
     }
 
     try {
-      await updateDoc(doc(db, 'vendors', selectedVendor.id, 'prices', itemId), {
-        ...updates,
-        ...(finalUnitPrice !== undefined ? { unitPrice: finalUnitPrice } : {}),
-        updatedAt: serverTimestamp()
-      });
-      setEditingPriceId(null);
+      if (isDeepLinkMode && !isAdminMode) {
+        const item = priceItems.find(i => i.id === itemId);
+        await addDoc(collection(db, 'pending_updates'), {
+          vendorId: selectedVendor.id,
+          priceItemId: itemId,
+          itemName: item?.itemName || 'Unknown Item',
+          oldData: item ? { costPrice: item.costPrice, negoRate: item.negoRate, negoType: item.negoType, weight: item.weight } : {},
+          newData: {
+            ...updates,
+            ...(finalUnitPrice !== undefined ? { unitPrice: finalUnitPrice } : {})
+          },
+          status: 'pending',
+          requestedBy: '업체(링크)',
+          requestedAt: serverTimestamp()
+        });
+
+        await updateDoc(doc(db, 'vendors', selectedVendor.id, 'prices', itemId), {
+          hasPendingUpdate: true
+        });
+
+        alert('상세 수정 요청이 전송되었습니다. 관리자 승인 후 반영됩니다.');
+        setEditingPriceId(null);
+      } else {
+        await updateDoc(doc(db, 'vendors', selectedVendor.id, 'prices', itemId), {
+          ...updates,
+          ...(finalUnitPrice !== undefined ? { unitPrice: finalUnitPrice } : {}),
+          updatedAt: serverTimestamp()
+        });
+        setEditingPriceId(null);
+      }
     } catch (error) {
       console.error("Error updating price item:", error);
       alert("수정 중 오류가 발생했습니다.");
@@ -1370,6 +1477,19 @@ export default function App() {
           </nav>
         </div>
         <div className="flex items-center gap-4">
+          {isAdminMode && pendingUpdates.filter(u => u.status === 'pending').length > 0 && (
+            <button 
+              onClick={() => setIsApprovalsModalOpen(true)}
+              className="relative flex items-center gap-2 px-3 py-1.5 bg-amber-50 text-amber-700 rounded-full border border-amber-200 hover:bg-amber-100 transition-all shadow-sm group"
+            >
+              <Info className="h-4 w-4" />
+              <span className="text-xs font-bold">승인 대기 {pendingUpdates.filter(u => u.status === 'pending').length}</span>
+              <span className="absolute -top-1 -right-1 flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+              </span>
+            </button>
+          )}
           <div className="relative group">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 group-focus-within:text-indigo-500 transition-colors" />
             <input 
@@ -1599,7 +1719,8 @@ export default function App() {
               </div>
 
               {/* TOOLBAR */}
-              <div className="h-14 border-b border-slate-200 flex items-center justify-between px-6 shrink-0 bg-white z-20 shadow-sm shadow-slate-100">
+              {canManageItems && (
+                <div className="h-14 border-b border-slate-200 flex items-center justify-between px-6 shrink-0 bg-white z-20 shadow-sm shadow-slate-100">
                 <div className="flex items-center gap-6">
                   <div className="flex items-center gap-4">
                     <span className="text-xs font-bold text-indigo-600 whitespace-nowrap">선택 {selectedPriceIds.size}개</span>
@@ -1742,6 +1863,7 @@ export default function App() {
                   <span className="text-indigo-600 font-black">{priceItems.length}</span>건 표시 중
                 </div>
               </div>
+              )}
 
               {/* CATEGORY TABS */}
               <div className="flex items-center gap-1 px-6 py-2 bg-[#F8F9FA] border-b border-slate-100 shrink-0 overflow-x-auto no-scrollbar">
@@ -1961,7 +2083,14 @@ export default function App() {
                             />
                           </td>
                           <td className="px-4 text-slate-400 font-mono text-[10px] leading-none">{item.itemCode || `DP-${String(idx+1).padStart(3, '0')}`}</td>
-                          <td className="px-4 font-bold text-slate-800 truncate">{item.itemName}</td>
+                          <td className="px-4 font-bold text-slate-800 truncate relative">
+                            {item.itemName}
+                            {item.hasPendingUpdate && (
+                              <div className="inline-flex ml-2" title="승인 대기 중인 변경 요청이 있습니다.">
+                                <span className="flex h-2 w-2 rounded-full bg-amber-500"></span>
+                              </div>
+                            )}
+                          </td>
                           <td className="px-4 text-slate-500 font-medium truncate text-xs">{item.spec}</td>
                           <td className="px-4 text-slate-400 font-medium text-xs">{item.unit}</td>
                           <td className="px-4 text-right font-mono font-black text-indigo-700 bg-indigo-50/10">
@@ -2946,6 +3075,83 @@ export default function App() {
                 </form>
               );
             })()}
+          </Modal>
+        )}
+
+        {/* Approvals Modal */}
+        {isApprovalsModalOpen && (
+          <Modal 
+            title="상세 수정 승인 대기 목록" 
+            onClose={() => setIsApprovalsModalOpen(false)}
+            maxWidth="max-w-4xl"
+          >
+            <div className="space-y-4">
+              {pendingUpdates.filter(u => u.status === 'pending').length === 0 ? (
+                <div className="p-12 text-center">
+                  <p className="text-slate-400 font-medium text-sm">승인 대기 중인 항목이 없습니다.</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {pendingUpdates.filter(u => u.status === 'pending').map((update) => {
+                    const vendor = vendors.find(v => v.id === update.vendorId);
+                    return (
+                      <div key={update.id} className="p-5 border border-slate-100 rounded-2xl bg-white shadow-sm hover:shadow-md transition-all">
+                        <div className="flex items-start justify-between mb-4">
+                          <div>
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-[10px] font-black bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full uppercase tracking-wider">
+                                {vendor?.name || '알 수 없는 업체'}
+                              </span>
+                              <span className="text-[10px] text-slate-400">
+                                {new Date(update.requestedAt?.toDate?.() || Date.now()).toLocaleString()}
+                              </span>
+                            </div>
+                            <h4 className="text-sm font-black text-slate-800">{update.itemName}</h4>
+                          </div>
+                          <div className="flex gap-2">
+                            <button 
+                              onClick={() => handleRejectUpdate(update.id)}
+                              className="px-4 py-2 bg-rose-50 text-rose-600 text-xs font-bold rounded-xl hover:bg-rose-100 transition-colors"
+                            >
+                              거절
+                            </button>
+                            <button 
+                              onClick={() => handleApproveUpdate(update)}
+                              className="px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
+                            >
+                              승인 적용
+                            </button>
+                          </div>
+                        </div>
+                        
+                        <div className="grid grid-cols-2 gap-4 bg-slate-50/50 p-4 rounded-xl border border-dashed border-slate-200">
+                          <div className="space-y-1">
+                            <span className="text-[10px] font-bold text-slate-400 uppercase">기존 데이터</span>
+                            <div className="space-y-1">
+                              {Object.entries(update.oldData).map(([key, val]) => (
+                                <div key={key} className="text-xs font-mono text-slate-500">
+                                  {key}: <span className="font-bold">{val?.toLocaleString()}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                          <div className="space-y-1">
+                            <span className="text-[10px] font-bold text-indigo-400 uppercase">변경 요청</span>
+                            <div className="space-y-1">
+                              {Object.entries(update.newData).map(([key, val]) => (
+                                <div key={key} className="text-xs font-mono text-indigo-600">
+                                  {key}: <span className="font-bold">{val?.toLocaleString()}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </Modal>
         )}
 

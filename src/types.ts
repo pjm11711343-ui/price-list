@@ -47,4 +47,18 @@ export interface PriceItem {
   maker?: string;
   order?: number;
   useRounding?: boolean;
+  hasPendingUpdate?: boolean; // 승인 대기 중 여부
+}
+
+export interface PendingPriceUpdate {
+  id: string;
+  vendorId: string;
+  priceItemId: string;
+  itemName: string;
+  oldData: Partial<PriceItem>;
+  newData: Partial<PriceItem>;
+  status: 'pending' | 'approved' | 'rejected';
+  requestedBy: string; // 'vendor' or name
+  requestedAt: any;
+  approvedAt?: any;
 }
