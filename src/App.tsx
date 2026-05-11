@@ -132,7 +132,7 @@ export default function App() {
   const [isViewingPriceTable, setIsViewingPriceTable] = useState(false);
   const [isEditingVendorInfo, setIsEditingVendorInfo] = useState(false);
   const [isChangingPassword, setIsChangingPassword] = useState(false);
-  const [vendorSortMode, setVendorSortMode] = useState<'name' | 'manual'>('manual');
+  const [vendorSortMode, setVendorSortMode] = useState<'name' | 'manual'>('name');
   const [errorInfo, setErrorInfo] = useState<FirestoreErrorInfo | null>(null);
   const [isSeedModalOpen, setIsSeedModalOpen] = useState(false);
   const [bulkFile, setBulkFile] = useState<File | null>(null);
@@ -1130,8 +1130,10 @@ export default function App() {
 
   const baseSortedVendors = useMemo(() => {
     const cleanName = (name: string) => {
-      // Remove (주), 주식회사, (주 ), 주 ) from anywhere in the string for sorting
-      return name.replace(/\(주\)|주식회사|\(주\s?\)|주\s?\)/g, '').trim();
+      // Remove (주), 주식회사, ㈜ prefixes and suffixes for cleaner sorting
+      return name.replace(/^(\(주\)|주식회사|㈜|주\))/, '')
+                 .replace(/(\(주\)|주식회사|㈜|주\))$/, '')
+                 .trim();
     };
 
     if (vendorSortMode === 'name') {
