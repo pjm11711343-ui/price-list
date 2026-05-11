@@ -1621,9 +1621,14 @@ export default function App() {
                         if (selectedPriceIds.size === 0) return;
                         try {
                           const batch = writeBatch(db);
+                          let skipped = 0;
                           selectedPriceIds.forEach(id => {
                             const item = priceItems.find(p => p.id === id);
                             if (item) {
+                              if (item.negoType === 'sts_pipe') {
+                                skipped++;
+                                return;
+                              }
                               const newUnitPrice = calculatePrice(item.costPrice, bulkNegoValue, item.useRounding, item.negoType || 'percent', item.weight);
                               batch.update(doc(db, 'vendors', selectedVendor.id, 'prices', id), {
                                 negoRate: bulkNegoValue,
@@ -1634,10 +1639,10 @@ export default function App() {
                           });
                           await batch.commit();
                           setSelectedPriceIds(new Set());
-                          alert('선택한 항목들이 성공적으로 업데이트되었습니다.');
+                          alert(`선택항목 적용 완료${skipped > 0 ? ` (STS 품목 ${skipped}개 제외)` : ''}`);
                         } catch (error) {
                           console.error("Selection update error:", error);
-                          alert('업데이트 중 오류가 발생했습니다. 권한을 확인해주세요.');
+                          alert('업데이트 중 오류가 발생했습니다.');
                         }
                       }}
                       className="h-8 px-4 bg-[#A3D169] hover:bg-[#8FBC4A] text-[#3D5620] text-xs font-bold rounded shadow-sm transition-all"
@@ -1656,13 +1661,30 @@ export default function App() {
                     )}
                     <button 
                       onClick={async () => {
-                        if (!confirm(`전체 ${priceItems.length}개 품목에 일괄 적용하시겠습니까?`)) return;
+                        const targetItems = activeCategory === '전체' 
+                          ? priceItems 
+                          : priceItems.filter(i => i.category === activeCategory);
+                        
+                        if (targetItems.length === 0) {
+                          alert('적용할 대상 품목이 없습니다.');
+                          return;
+                        }
+
+                        if (!confirm(`${activeCategory === '전체' ? '전체' : `'${activeCategory}'`} ${targetItems.length}개 품목 중 % 네고 항목에 일괄 적용하시겠습니까?`)) return;
+                        
                         try {
                           setLoading(true);
-                          // Firestore batch limit is 500. We should chunk the updates.
                           const chunks = [];
-                          for (let i = 0; i < priceItems.length; i += 400) {
-                            chunks.push(priceItems.slice(i, i + 400));
+                          const eligibleItems = targetItems.filter(i => i.negoType !== 'sts_pipe');
+                          
+                          if (eligibleItems.length === 0) {
+                            alert('적용 가능한 % 네고 항목이 없습니다.');
+                            setLoading(false);
+                            return;
+                          }
+
+                          for (let i = 0; i < eligibleItems.length; i += 400) {
+                            chunks.push(eligibleItems.slice(i, i + 400));
                           }
 
                           for (const chunk of chunks) {
@@ -1678,7 +1700,7 @@ export default function App() {
                             await batch.commit();
                           }
                           
-                          alert('전체 품목이 성공적으로 업데이트되었습니다.');
+                          alert(`${activeCategory === '전체' ? '전체' : `'${activeCategory}'`} ${eligibleItems.length}개 품목 업데이트 완료`);
                         } catch (error) {
                           console.error("Full update error:", error);
                           alert('일괄 업데이트 중 오류가 발생했습니다.');
@@ -1688,7 +1710,7 @@ export default function App() {
                       }}
                       className="h-8 px-4 border border-slate-200 hover:bg-slate-50 text-slate-600 text-xs font-bold rounded transition-all"
                     >
-                      전체 적용
+                      {activeCategory === '전체' ? '전체 적용' : `'${activeCategory}' 적용`}
                     </button>
                     {canManageItems && (
                       <div className="flex items-center gap-2">
