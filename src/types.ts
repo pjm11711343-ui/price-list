@@ -17,6 +17,8 @@ export interface Vendor {
   handlingDetails?: Record<string, string>;
   categories?: string[];
   order?: number;
+  deleted?: boolean;
+  deletedAt?: any;
   createdAt?: any;
   updatedAt?: any;
 }

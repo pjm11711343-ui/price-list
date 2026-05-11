@@ -25,7 +25,9 @@ import {
   ChevronDown,
   Info,
   Link as LinkIcon,
-  ArrowUpDown
+  ArrowUpDown,
+  History,
+  RotateCcw
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import * as XLSX from 'xlsx';
@@ -132,6 +134,7 @@ export default function App() {
   const [isViewingPriceTable, setIsViewingPriceTable] = useState(false);
   const [isEditingVendorInfo, setIsEditingVendorInfo] = useState(false);
   const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const [isViewingDeletedVendors, setIsViewingDeletedVendors] = useState(false);
   const [vendorSortMode, setVendorSortMode] = useState<'name' | 'manual'>('name');
   const [errorInfo, setErrorInfo] = useState<FirestoreErrorInfo | null>(null);
   const [isSeedModalOpen, setIsSeedModalOpen] = useState(false);
@@ -797,16 +800,12 @@ export default function App() {
       setLoading(true);
       const id = vendorToDelete.id;
       
-      // 1. Delete associated prices
-      const pricesRef = collection(db, 'vendors', id, 'prices');
-      const pricesSnap = await getDocs(pricesRef);
-      
-      for (const priceDoc of pricesSnap.docs) {
-        await deleteDoc(doc(db, 'vendors', id, 'prices', priceDoc.id));
-      }
-
-      // 2. Delete the vendor document
-      await deleteDoc(doc(db, 'vendors', id));
+      // Soft delete: Mark as deleted instead of removing from DB
+      await updateDoc(doc(db, 'vendors', id), {
+        deleted: true,
+        deletedAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
       
       if (selectedVendor?.id === id) {
         setSelectedVendor(null);
@@ -821,6 +820,23 @@ export default function App() {
     } catch (error) {
       console.error("Delete Error:", error);
       alert('삭제 중 오류가 발생했습니다.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRestoreVendor = async (id: string) => {
+    try {
+      setLoading(true);
+      await updateDoc(doc(db, 'vendors', id), {
+        deleted: false,
+        deletedAt: null,
+        updatedAt: serverTimestamp()
+      });
+      alert('업체가 성공적으로 복원되었습니다.');
+    } catch (error) {
+      console.error("Restore Error:", error);
+      alert('복원 중 오류가 발생했습니다.');
     } finally {
       setLoading(false);
     }
@@ -868,6 +884,7 @@ export default function App() {
             email: row['이메일'] || row['Email'] || '',
             password: String(row['비밀번호'] || row['Password'] || '1234'),
             order: count,
+            deleted: false,
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp()
           };
@@ -1129,6 +1146,8 @@ export default function App() {
   }, [selectedVendor?.priceTableUrl, selectedVendor?.priceTableFileType, isVerified, selectedVendor?.id]);
 
   const baseSortedVendors = useMemo(() => {
+    const activeVendors = vendors.filter(v => !v.deleted);
+    
     const cleanName = (name: string) => {
       // Remove (주), 주식회사, ㈜ prefixes and suffixes for cleaner sorting
       return name.replace(/^(\(주\)|주식회사|㈜|주\))/, '')
@@ -1137,7 +1156,7 @@ export default function App() {
     };
 
     if (vendorSortMode === 'name') {
-      return [...vendors].sort((a, b) => {
+      return [...activeVendors].sort((a, b) => {
         const nameA = cleanName(a.name);
         const nameB = cleanName(b.name);
         return nameA.localeCompare(nameB, 'ko');
@@ -1145,7 +1164,7 @@ export default function App() {
     }
 
     // Default: Sort by order field
-    return [...vendors].sort((a, b) => {
+    return [...activeVendors].sort((a, b) => {
       const orderA = a.order ?? 0;
       const orderB = b.order ?? 0;
       if (orderA !== orderB) return orderA - orderB;
@@ -1223,6 +1242,7 @@ export default function App() {
       priceTableFileType,
       priceTableFileName,
       order: vendors.length,
+      deleted: false,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     };
@@ -1775,6 +1795,13 @@ export default function App() {
                       title={vendorSortMode === 'name' ? "기본 순서로 정렬" : "가나다순 정렬"}
                     >
                       <ArrowUpDown className="h-4 w-4" />
+                    </button>
+                    <button 
+                      onClick={() => setIsViewingDeletedVendors(true)}
+                      className="p-1.5 hover:bg-slate-200 rounded-md transition-colors text-slate-400 hover:text-amber-600"
+                      title="삭제된 업체 복구"
+                    >
+                      <History className="h-4 w-4" />
                     </button>
                     <button 
                       onClick={handleBackupAllData}
@@ -3001,6 +3028,63 @@ export default function App() {
                 </button>
               </div>
             </form>
+          </Modal>
+        )}
+
+        {isViewingDeletedVendors && (
+          <Modal 
+            key="modal-view-deleted-vendors" 
+            title="삭제된 거래처 복구" 
+            onClose={() => setIsViewingDeletedVendors(false)}
+            maxWidth="max-w-xl"
+          >
+            <div className="space-y-4">
+              <div className="bg-amber-50 border border-amber-100 p-4 rounded-xl mb-4">
+                <p className="text-xs text-amber-800 font-medium leading-relaxed">
+                  거래처를 삭제(소프트 삭제)한 경우 이곳에서 확인할 수 있습니다.<br/>
+                  복구 버튼을 누르면 다시 목록에 표시되며, 기존 모든 데이터가 유지됩니다.
+                </p>
+              </div>
+
+              {vendors.filter(v => v.deleted).length === 0 ? (
+                <div className="py-20 text-center bg-slate-50 rounded-2xl border-2 border-dashed border-slate-100">
+                  <History className="h-10 w-10 text-slate-300 mx-auto mb-3" />
+                  <p className="text-slate-400 font-bold">최근 삭제된 거래처가 없습니다.</p>
+                </div>
+              ) : (
+                <div className="max-h-[500px] overflow-y-auto pr-2 space-y-2">
+                  {vendors.filter(v => v.deleted).sort((a,b) => (b.deletedAt?.toMillis?.() || 0) - (a.deletedAt?.toMillis?.() || 0)).map(vendor => (
+                    <div key={vendor.id} className="flex items-center justify-between p-4 bg-white border border-slate-100 rounded-xl hover:border-indigo-200 transition-all group">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 group-hover:bg-indigo-50 group-hover:text-indigo-600 transition-colors">
+                          <Building2 className="h-5 w-5" />
+                        </div>
+                        <div>
+                          <p className="font-bold text-slate-800 text-sm">{vendor.name}</p>
+                          <p className="text-[10px] text-slate-400 font-medium">
+                            삭제일: {vendor.deletedAt?.toDate ? vendor.deletedAt.toDate().toLocaleString('ko-KR') : '알 수 없음'}
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => handleRestoreVendor(vendor.id)}
+                        className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-slate-900 transition-all shadow-lg shadow-indigo-100"
+                      >
+                        <RotateCcw className="h-3.5 w-3.5" />
+                        복구하기
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <button 
+                onClick={() => setIsViewingDeletedVendors(false)}
+                className="w-full py-4 mt-4 bg-slate-100 text-slate-600 font-bold rounded-xl hover:bg-slate-200 transition-all"
+              >
+                닫기
+              </button>
+            </div>
           </Modal>
         )}
 
