@@ -261,7 +261,8 @@ export default function App() {
     };
   }, [resizing]);
 
-  const canManageItems = isAdminMode || (selectedVendor && isVerified === selectedVendor.id);
+  const canManageItems = isAdminMode || (selectedVendor && (isVerified === selectedVendor.id || isDeepLinkMode));
+  const isActuallyAuthorized = isAdminMode || (selectedVendor && isVerified === selectedVendor.id);
 
   const toggleSelectItem = (id: string) => {
     setSelectedPriceIds(prev => {
@@ -314,29 +315,57 @@ export default function App() {
     if (!selectedVendor || selectedPriceIds.size === 0) return;
     
     try {
-      const batch = writeBatch(db);
-      selectedPriceIds.forEach(id => {
-        const item = priceItems.find(p => p.id === id);
-        if (item) {
-          let newNegoRate = item.negoRate || 0;
-          let newUnitPrice = item.unitPrice;
+      if (isDeepLinkMode && !isAdminMode) {
+        let pendingCount = 0;
+        for (const id of Array.from(selectedPriceIds)) {
+          const item = priceItems.find(p => p.id === id);
+          if (item && !item.hasPendingUpdate) {
+            let newNegoRate = item.negoRate || 0;
+            newNegoRate = Number(newNegoRate) + Number(bulkAdjustValue);
+            const newUnitPrice = calculatePrice(item.costPrice, newNegoRate, item.useRounding, item.negoType || 'percent', item.weight);
 
-          // Only percent adjustment is supported now
-          newNegoRate = Number(newNegoRate) + Number(bulkAdjustValue);
-          newUnitPrice = calculatePrice(item.costPrice, newNegoRate, item.useRounding, item.negoType || 'percent', item.weight);
-
-          batch.update(doc(db, 'vendors', selectedVendor.id, 'prices', id), {
-            negoRate: newNegoRate,
-            unitPrice: newUnitPrice,
-            updatedAt: serverTimestamp()
-          });
+            await addDoc(collection(db, 'pending_updates'), {
+              vendorId: selectedVendor.id,
+              priceItemId: id,
+              itemName: item.itemName,
+              oldData: { negoRate: item.negoRate, unitPrice: item.unitPrice },
+              newData: { negoRate: newNegoRate, unitPrice: newUnitPrice },
+              status: 'pending',
+              requestedBy: '업체(링크)',
+              requestedAt: serverTimestamp()
+            });
+            await updateDoc(doc(db, 'vendors', selectedVendor.id, 'prices', id), {
+              hasPendingUpdate: true
+            });
+            pendingCount++;
+          }
         }
-      });
-      await batch.commit();
+        alert(`${pendingCount}개 품목에 대한 승인 요청이 전송되었습니다.`);
+      } else {
+        const batch = writeBatch(db);
+        selectedPriceIds.forEach(id => {
+          const item = priceItems.find(p => p.id === id);
+          if (item) {
+            let newNegoRate = item.negoRate || 0;
+            let newUnitPrice = item.unitPrice;
+
+            // Only percent adjustment is supported now
+            newNegoRate = Number(newNegoRate) + Number(bulkAdjustValue);
+            newUnitPrice = calculatePrice(item.costPrice, newNegoRate, item.useRounding, item.negoType || 'percent', item.weight);
+
+            batch.update(doc(db, 'vendors', selectedVendor.id, 'prices', id), {
+              negoRate: newNegoRate,
+              unitPrice: newUnitPrice,
+              updatedAt: serverTimestamp()
+            });
+          }
+        });
+        await batch.commit();
+        alert('가격이 일괄 조정되었습니다.');
+      }
       setSelectedPriceIds(new Set());
       setIsBulkAdjustModalOpen(false);
       setBulkAdjustValue(0);
-      alert('가격이 일괄 조정되었습니다.');
     } catch (error) {
       console.error("Error adjusting prices:", error);
       alert('가격 조정 중 오류가 발생했습니다.');
@@ -1770,7 +1799,10 @@ export default function App() {
                         if (selectedPriceIds.size === 0) return;
                         try {
                           const batch = writeBatch(db);
+                          const pendingBatch = [];
                           let skipped = 0;
+                          let pendingCount = 0;
+
                           selectedPriceIds.forEach(id => {
                             const item = priceItems.find(p => p.id === id);
                             if (item) {
@@ -1779,16 +1811,50 @@ export default function App() {
                                 return;
                               }
                               const newUnitPrice = calculatePrice(item.costPrice, bulkNegoValue, item.useRounding, item.negoType || 'percent', item.weight);
-                              batch.update(doc(db, 'vendors', selectedVendor.id, 'prices', id), {
-                                negoRate: bulkNegoValue,
-                                unitPrice: newUnitPrice,
-                                updatedAt: serverTimestamp()
-                              });
+                              
+                              if (isDeepLinkMode && !isAdminMode) {
+                                if (!item.hasPendingUpdate) {
+                                  pendingBatch.push({
+                                    doc: doc(db, 'vendors', selectedVendor.id, 'prices', id),
+                                    update: {
+                                      vendorId: selectedVendor.id,
+                                      priceItemId: id,
+                                      itemName: item.itemName,
+                                      oldData: { negoRate: item.negoRate, unitPrice: item.unitPrice },
+                                      newData: { negoRate: bulkNegoValue, unitPrice: newUnitPrice },
+                                      status: 'pending',
+                                      requestedBy: '업체(링크)',
+                                      requestedAt: serverTimestamp()
+                                    }
+                                  });
+                                  pendingCount++;
+                                }
+                              } else {
+                                batch.update(doc(db, 'vendors', selectedVendor.id, 'prices', id), {
+                                  negoRate: bulkNegoValue,
+                                  unitPrice: newUnitPrice,
+                                  updatedAt: serverTimestamp()
+                                });
+                              }
                             }
                           });
-                          await batch.commit();
+
+                          if (isDeepLinkMode && !isAdminMode) {
+                            if (pendingBatch.length > 0) {
+                              for (const item of pendingBatch) {
+                                await addDoc(collection(db, 'pending_updates'), item.update);
+                                await updateDoc(item.doc, { hasPendingUpdate: true });
+                              }
+                              alert(`${pendingCount}개 품목에 대한 승인 요청이 전송되었습니다.`);
+                            } else {
+                              alert('이미 승인 대기 중인 품목들이거나 변경 대상이 없습니다.');
+                            }
+                          } else {
+                            await batch.commit();
+                            alert(`선택항목 적용 완료${skipped > 0 ? ` (STS 품목 ${skipped}개 제외)` : ''}`);
+                          }
+                          
                           setSelectedPriceIds(new Set());
-                          alert(`선택항목 적용 완료${skipped > 0 ? ` (STS 품목 ${skipped}개 제외)` : ''}`);
                         } catch (error) {
                           console.error("Selection update error:", error);
                           alert('업데이트 중 오류가 발생했습니다.');
@@ -1799,7 +1865,7 @@ export default function App() {
                       선택 적용
                     </button>
                     
-                    {selectedPriceIds.size > 0 && canManageItems && (
+                    {selectedPriceIds.size > 0 && isActuallyAuthorized && (
                       <button 
                         onClick={handleBulkDelete}
                         className="h-8 px-4 bg-rose-50 text-rose-600 border border-rose-100 hover:bg-rose-100 text-xs font-bold rounded shadow-sm transition-all flex items-center gap-1.5"
@@ -1823,7 +1889,6 @@ export default function App() {
                         
                         try {
                           setLoading(true);
-                          const chunks = [];
                           const eligibleItems = targetItems.filter(i => i.negoType !== 'sts_pipe');
                           
                           if (eligibleItems.length === 0) {
@@ -1832,24 +1897,48 @@ export default function App() {
                             return;
                           }
 
-                          for (let i = 0; i < eligibleItems.length; i += 400) {
-                            chunks.push(eligibleItems.slice(i, i + 400));
-                          }
+                          if (isDeepLinkMode && !isAdminMode) {
+                            let pendingCount = 0;
+                            for (const item of eligibleItems) {
+                              if (!item.hasPendingUpdate) {
+                                const newUnitPrice = calculatePrice(item.costPrice, bulkNegoValue, item.useRounding, item.negoType || 'percent', item.weight);
+                                await addDoc(collection(db, 'pending_updates'), {
+                                  vendorId: selectedVendor.id,
+                                  priceItemId: item.id,
+                                  itemName: item.itemName,
+                                  oldData: { negoRate: item.negoRate, unitPrice: item.unitPrice },
+                                  newData: { negoRate: bulkNegoValue, unitPrice: newUnitPrice },
+                                  status: 'pending',
+                                  requestedBy: '업체(링크)',
+                                  requestedAt: serverTimestamp()
+                                });
+                                await updateDoc(doc(db, 'vendors', selectedVendor.id, 'prices', item.id), {
+                                  hasPendingUpdate: true
+                                });
+                                pendingCount++;
+                              }
+                            }
+                            alert(`${pendingCount}개 품목에 대한 승인 요청이 전송되었습니다.`);
+                          } else {
+                            const chunks = [];
+                            for (let i = 0; i < eligibleItems.length; i += 400) {
+                              chunks.push(eligibleItems.slice(i, i + 400));
+                            }
 
-                          for (const chunk of chunks) {
-                            const batch = writeBatch(db);
-                            chunk.forEach(item => {
-                              const newUnitPrice = calculatePrice(item.costPrice, bulkNegoValue, item.useRounding, item.negoType || 'percent', item.weight);
-                              batch.update(doc(db, 'vendors', selectedVendor.id, 'prices', item.id), {
-                                negoRate: bulkNegoValue,
-                                unitPrice: newUnitPrice,
-                                updatedAt: serverTimestamp()
+                            for (const chunk of chunks) {
+                              const batch = writeBatch(db);
+                              chunk.forEach(item => {
+                                const newUnitPrice = calculatePrice(item.costPrice, bulkNegoValue, item.useRounding, item.negoType || 'percent', item.weight);
+                                batch.update(doc(db, 'vendors', selectedVendor.id, 'prices', item.id), {
+                                  negoRate: bulkNegoValue,
+                                  unitPrice: newUnitPrice,
+                                  updatedAt: serverTimestamp()
+                                });
                               });
-                            });
-                            await batch.commit();
+                              await batch.commit();
+                            }
+                            alert(`${activeCategory === '전체' ? '전체' : `'${activeCategory}'`} ${eligibleItems.length}개 품목 업데이트 완료`);
                           }
-                          
-                          alert(`${activeCategory === '전체' ? '전체' : `'${activeCategory}'`} ${eligibleItems.length}개 품목 업데이트 완료`);
                         } catch (error) {
                           console.error("Full update error:", error);
                           alert('일괄 업데이트 중 오류가 발생했습니다.');
@@ -1861,7 +1950,7 @@ export default function App() {
                     >
                       {activeCategory === '전체' ? '전체 적용' : `'${activeCategory}' 적용`}
                     </button>
-                    {canManageItems && (
+                    {isActuallyAuthorized && (
                       <div className="flex items-center gap-2">
                         <button 
                           onClick={() => setIsBulkItemUploadOpen(true)}
