@@ -1338,10 +1338,16 @@ export default function App() {
     if (!selectedVendor) return;
 
     const formData = new FormData(e.currentTarget);
+    const currentPasswordInput = formData.get('currentPassword') as string;
     const newPassword = formData.get('newPassword') as string;
 
+    if (currentPasswordInput !== selectedVendor.password) {
+      alert('기존 비밀번호가 일치하지 않습니다.');
+      return;
+    }
+
     if (!newPassword || newPassword.length < 4) {
-      alert('비밀번호는 최소 4자 이상이어야 합니다.');
+      alert('새 비밀번호는 최소 4자 이상이어야 합니다.');
       return;
     }
 
@@ -3205,15 +3211,27 @@ export default function App() {
                 <h3 className="text-xl font-bold text-slate-800 mb-2">보안 설정 변경</h3>
                 <p className="text-slate-500 text-sm">업체 관리용 비밀번호를 새로 설정합니다.</p>
               </div>
-              <div className="space-y-2">
-                <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">새 비밀번호 (최소 4자)</label>
-                <input 
-                  name="newPassword"
-                  type="password" 
-                  required
-                  placeholder="새로운 비밀번호 입력"
-                  className="w-full rounded-2xl border-2 border-slate-100 bg-slate-50 p-5 text-center text-2xl font-black tracking-[0.5em] text-slate-800 focus:border-indigo-500 focus:bg-white focus:outline-none transition-all" 
-                />
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">기존 비밀번호 확인</label>
+                  <input 
+                    name="currentPassword"
+                    type="password" 
+                    required
+                    placeholder="기존 비밀번호 입력"
+                    className="w-full rounded-2xl border-2 border-slate-100 bg-slate-50 p-4 text-center text-xl font-black text-slate-800 focus:border-indigo-500 focus:bg-white focus:outline-none transition-all" 
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">새 비밀번호 (최소 4자)</label>
+                  <input 
+                    name="newPassword"
+                    type="password" 
+                    required
+                    placeholder="새로운 비밀번호 입력"
+                    className="w-full rounded-2xl border-2 border-slate-100 bg-slate-50 p-4 text-center text-xl font-black text-slate-800 focus:border-indigo-500 focus:bg-white focus:outline-none transition-all" 
+                  />
+                </div>
               </div>
               <div className="flex gap-3">
                 <button 
