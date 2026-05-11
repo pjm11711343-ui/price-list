@@ -78,6 +78,7 @@
         "vendorId": { "type": "string" },
         "priceItemId": { "type": "string" },
         "itemName": { "type": "string" },
+        "spec": { "type": "string" },
         "oldData": { "type": "object" },
         "newData": { "type": "object" },
         "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },

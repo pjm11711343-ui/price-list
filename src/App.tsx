@@ -329,48 +329,65 @@ export default function App() {
           return;
         }
 
-        let pendingCount = 0;
-        for (const item of targets) {
-          let newNegoRate = item.negoRate || 0;
-          newNegoRate = Number(newNegoRate) + Number(bulkAdjustValue);
-          const newUnitPrice = calculatePrice(item.costPrice, newNegoRate, item.useRounding, item.negoType || 'percent', item.weight);
+        setLoading(true);
+        const chunkSize = 400;
+        let processedCount = 0;
 
-          await addDoc(collection(db, 'pending_updates'), {
-            vendorId: selectedVendor.id,
-            priceItemId: item.id,
-            itemName: item.itemName,
-            oldData: { negoRate: item.negoRate, unitPrice: item.unitPrice },
-            newData: { negoRate: newNegoRate, unitPrice: newUnitPrice },
-            status: 'pending',
-            requestedBy: '업체(링크)',
-            requestedAt: serverTimestamp()
-          });
-          await updateDoc(doc(db, 'vendors', selectedVendor.id, 'prices', item.id), {
-            hasPendingUpdate: true
-          });
-          pendingCount++;
-        }
-        alert(`${pendingCount}개 품목에 대한 승인 요청이 전송되었습니다.`);
-      } else {
-        const batch = writeBatch(db);
-        selectedPriceIds.forEach(id => {
-          const item = priceItems.find(p => p.id === id);
-          if (item) {
+        for (let i = 0; i < targets.length; i += chunkSize) {
+          const chunk = targets.slice(i, i + chunkSize);
+          const batch = writeBatch(db);
+
+          for (const item of chunk) {
             let newNegoRate = item.negoRate || 0;
-            let newUnitPrice = item.unitPrice;
-
-            // Only percent adjustment is supported now
             newNegoRate = Number(newNegoRate) + Number(bulkAdjustValue);
-            newUnitPrice = calculatePrice(item.costPrice, newNegoRate, item.useRounding, item.negoType || 'percent', item.weight);
+            const newUnitPrice = calculatePrice(item.costPrice, newNegoRate, item.useRounding, item.negoType || 'percent', item.weight);
 
-            batch.update(doc(db, 'vendors', selectedVendor.id, 'prices', id), {
+            const pendingRef = doc(collection(db, 'pending_updates'));
+            batch.set(pendingRef, {
+              vendorId: selectedVendor.id,
+              priceItemId: item.id,
+              itemName: item.itemName,
+              spec: item.spec || '',
+              oldData: { negoRate: item.negoRate, unitPrice: item.unitPrice },
+              newData: { negoRate: newNegoRate, unitPrice: newUnitPrice },
+              status: 'pending',
+              requestedBy: '업체(링크)',
+              requestedAt: serverTimestamp()
+            });
+
+            const itemRef = doc(db, 'vendors', selectedVendor.id, 'prices', item.id);
+            batch.update(itemRef, {
+              hasPendingUpdate: true
+            });
+            processedCount++;
+          }
+          await batch.commit();
+        }
+        alert(`${processedCount}개 품목에 대한 승인 요청이 전송되었습니다.`);
+      } else {
+        setLoading(true);
+        const targets = Array.from(selectedPriceIds)
+          .map(id => priceItems.find(p => p.id === id))
+          .filter(Boolean) as PriceItem[];
+
+        const chunkSize = 400;
+        for (let i = 0; i < targets.length; i += chunkSize) {
+          const chunk = targets.slice(i, i + chunkSize);
+          const batch = writeBatch(db);
+          
+          chunk.forEach(item => {
+            let newNegoRate = item.negoRate || 0;
+            newNegoRate = Number(newNegoRate) + Number(bulkAdjustValue);
+            const newUnitPrice = calculatePrice(item.costPrice, newNegoRate, item.useRounding, item.negoType || 'percent', item.weight);
+
+            batch.update(doc(db, 'vendors', selectedVendor.id, 'prices', item.id), {
               negoRate: newNegoRate,
               unitPrice: newUnitPrice,
               updatedAt: serverTimestamp()
             });
-          }
-        });
-        await batch.commit();
+          });
+          await batch.commit();
+        }
         alert('가격이 일괄 조정되었습니다.');
       }
       setSelectedPriceIds(new Set());
@@ -379,6 +396,8 @@ export default function App() {
     } catch (error) {
       console.error("Error adjusting prices:", error);
       alert('가격 조정 중 오류가 발생했습니다.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -442,7 +461,11 @@ export default function App() {
           vendorId: selectedVendor.id,
           priceItemId: id,
           itemName: item.itemName,
-          oldData: { [field]: item[field as keyof PriceItem] },
+          spec: item.spec || '',
+          oldData: Object.keys(updates).reduce((acc: any, key) => {
+            acc[key] = item[key as keyof PriceItem];
+            return acc;
+          }, {}),
           newData: updates,
           status: 'pending',
           requestedBy: '업체(링크)',
@@ -1411,6 +1434,7 @@ export default function App() {
           vendorId: selectedVendor.id,
           priceItemId: itemId,
           itemName: item?.itemName || 'Unknown Item',
+          spec: item?.spec || '',
           oldData: item ? { costPrice: item.costPrice, negoRate: item.negoRate, negoType: item.negoType, weight: item.weight } : {},
           newData: {
             ...updates,
@@ -1868,59 +1892,59 @@ export default function App() {
                         }
 
                         try {
-                          const batch = writeBatch(db);
-                          const pendingBatch = [];
+                          setLoading(true);
                           let skipped = 0;
                           let pendingCount = 0;
+                          
+                          const targets = Array.from(selectedPriceIds)
+                            .map(id => priceItems.find(p => p.id === id))
+                            .filter(Boolean) as PriceItem[];
 
-                          selectedPriceIds.forEach(id => {
-                            const item = priceItems.find(p => p.id === id);
-                            if (item) {
+                          const chunkSize = 400;
+                          for (let i = 0; i < targets.length; i += chunkSize) {
+                            const chunk = targets.slice(i, i + chunkSize);
+                            const batch = writeBatch(db);
+
+                            for (const item of chunk) {
                               if (item.negoType === 'sts_pipe') {
                                 skipped++;
-                                return;
+                                continue;
                               }
                               const newUnitPrice = calculatePrice(item.costPrice, bulkNegoValue, item.useRounding, item.negoType || 'percent', item.weight);
                               
                               if (isDeepLinkMode && !isAdminMode) {
                                 if (!item.hasPendingUpdate) {
-                                  pendingBatch.push({
-                                    doc: doc(db, 'vendors', selectedVendor.id, 'prices', id),
-                                    update: {
-                                      vendorId: selectedVendor.id,
-                                      priceItemId: id,
-                                      itemName: item.itemName,
-                                      oldData: { negoRate: item.negoRate, unitPrice: item.unitPrice },
-                                      newData: { negoRate: bulkNegoValue, unitPrice: newUnitPrice },
-                                      status: 'pending',
-                                      requestedBy: '업체(링크)',
-                                      requestedAt: serverTimestamp()
-                                    }
+                                  const pendingRef = doc(collection(db, 'pending_updates'));
+                                  batch.set(pendingRef, {
+                                    vendorId: selectedVendor.id,
+                                    priceItemId: item.id,
+                                    itemName: item.itemName,
+                                    spec: item.spec || '',
+                                    oldData: { negoRate: item.negoRate, unitPrice: item.unitPrice },
+                                    newData: { negoRate: bulkNegoValue, unitPrice: newUnitPrice },
+                                    status: 'pending',
+                                    requestedBy: '업체(링크)',
+                                    requestedAt: serverTimestamp()
                                   });
+                                  
+                                  const itemRef = doc(db, 'vendors', selectedVendor.id, 'prices', item.id);
+                                  batch.update(itemRef, { hasPendingUpdate: true });
                                   pendingCount++;
                                 }
                               } else {
-                                batch.update(doc(db, 'vendors', selectedVendor.id, 'prices', id), {
+                                batch.update(doc(db, 'vendors', selectedVendor.id, 'prices', item.id), {
                                   negoRate: bulkNegoValue,
                                   unitPrice: newUnitPrice,
                                   updatedAt: serverTimestamp()
                                 });
                               }
                             }
-                          });
+                            await batch.commit();
+                          }
 
                           if (isDeepLinkMode && !isAdminMode) {
-                            if (pendingBatch.length > 0) {
-                              for (const item of pendingBatch) {
-                                await addDoc(collection(db, 'pending_updates'), item.update);
-                                await updateDoc(item.doc, { hasPendingUpdate: true });
-                              }
-                              alert(`${pendingCount}개 품목에 대한 승인 요청이 전송되었습니다.`);
-                            } else {
-                              alert('이미 승인 대기 중인 품목들이거나 변경 대상이 없습니다.');
-                            }
+                            alert(`${pendingCount}개 품목에 대한 승인 요청이 전송되었습니다.`);
                           } else {
-                            await batch.commit();
                             alert(`선택항목 적용 완료${skipped > 0 ? ` (STS 품목 ${skipped}개 제외)` : ''}`);
                           }
                           
@@ -1928,6 +1952,8 @@ export default function App() {
                         } catch (error) {
                           console.error("Selection update error:", error);
                           alert('업데이트 중 오류가 발생했습니다.');
+                        } finally {
+                          setLoading(false);
                         }
                       }}
                       className="h-8 px-4 bg-[#A3D169] hover:bg-[#8FBC4A] text-[#3D5620] text-xs font-bold rounded shadow-sm transition-all"
@@ -1967,46 +1993,48 @@ export default function App() {
                             return;
                           }
 
-                          if (isDeepLinkMode && !isAdminMode) {
-                            let pendingCount = 0;
-                            for (const item of eligibleItems) {
-                              if (!item.hasPendingUpdate) {
-                                const newUnitPrice = calculatePrice(item.costPrice, bulkNegoValue, item.useRounding, item.negoType || 'percent', item.weight);
-                                await addDoc(collection(db, 'pending_updates'), {
-                                  vendorId: selectedVendor.id,
-                                  priceItemId: item.id,
-                                  itemName: item.itemName,
-                                  oldData: { negoRate: item.negoRate, unitPrice: item.unitPrice },
-                                  newData: { negoRate: bulkNegoValue, unitPrice: newUnitPrice },
-                                  status: 'pending',
-                                  requestedBy: '업체(링크)',
-                                  requestedAt: serverTimestamp()
-                                });
-                                await updateDoc(doc(db, 'vendors', selectedVendor.id, 'prices', item.id), {
-                                  hasPendingUpdate: true
-                                });
-                                pendingCount++;
-                              }
-                            }
-                            alert(`${pendingCount}개 품목에 대한 승인 요청이 전송되었습니다.`);
-                          } else {
-                            const chunks = [];
-                            for (let i = 0; i < eligibleItems.length; i += 400) {
-                              chunks.push(eligibleItems.slice(i, i + 400));
-                            }
+                          const chunkSize = 400;
+                          let pendingCount = 0;
+                          
+                          for (let i = 0; i < eligibleItems.length; i += chunkSize) {
+                            const chunk = eligibleItems.slice(i, i + chunkSize);
+                            const batch = writeBatch(db);
 
-                            for (const chunk of chunks) {
-                              const batch = writeBatch(db);
-                              chunk.forEach(item => {
+                            for (const item of chunk) {
+                              if (isDeepLinkMode && !isAdminMode) {
+                                if (!item.hasPendingUpdate) {
+                                  const newUnitPrice = calculatePrice(item.costPrice, bulkNegoValue, item.useRounding, item.negoType || 'percent', item.weight);
+                                  const pendingRef = doc(collection(db, 'pending_updates'));
+                                  batch.set(pendingRef, {
+                                    vendorId: selectedVendor.id,
+                                    priceItemId: item.id,
+                                    itemName: item.itemName,
+                                    spec: item.spec || '',
+                                    oldData: { negoRate: item.negoRate, unitPrice: item.unitPrice },
+                                    newData: { negoRate: bulkNegoValue, unitPrice: newUnitPrice },
+                                    status: 'pending',
+                                    requestedBy: '업체(링크)',
+                                    requestedAt: serverTimestamp()
+                                  });
+                                  const itemRef = doc(db, 'vendors', selectedVendor.id, 'prices', item.id);
+                                  batch.update(itemRef, { hasPendingUpdate: true });
+                                  pendingCount++;
+                                }
+                              } else {
                                 const newUnitPrice = calculatePrice(item.costPrice, bulkNegoValue, item.useRounding, item.negoType || 'percent', item.weight);
                                 batch.update(doc(db, 'vendors', selectedVendor.id, 'prices', item.id), {
                                   negoRate: bulkNegoValue,
                                   unitPrice: newUnitPrice,
                                   updatedAt: serverTimestamp()
                                 });
-                              });
-                              await batch.commit();
+                              }
                             }
+                            await batch.commit();
+                          }
+
+                          if (isDeepLinkMode && !isAdminMode) {
+                            alert(`${pendingCount}개 품목에 대한 승인 요청이 전송되었습니다.`);
+                          } else {
                             alert(`${activeCategory === '전체' ? '전체' : `'${activeCategory}'`} ${eligibleItems.length}개 품목 업데이트 완료`);
                           }
                         } catch (error) {
@@ -3314,6 +3342,9 @@ export default function App() {
                                 </span>
                               </div>
                               <h4 className="text-sm font-black text-slate-800">{update.itemName}</h4>
+                              {update.spec && (
+                                <p className="text-[10px] text-slate-500 font-bold mt-0.5">{update.spec}</p>
+                              )}
                             </div>
                             <div className="flex gap-2">
                               <button 
