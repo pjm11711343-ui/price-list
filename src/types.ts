@@ -16,6 +16,7 @@ export interface Vendor {
   masterCustomFlag?: boolean;
   handlingDetails?: Record<string, string>;
   categories?: string[];
+  order?: number;
   createdAt?: any;
   updatedAt?: any;
 }

@@ -132,7 +132,7 @@ export default function App() {
   const [isViewingPriceTable, setIsViewingPriceTable] = useState(false);
   const [isEditingVendorInfo, setIsEditingVendorInfo] = useState(false);
   const [isChangingPassword, setIsChangingPassword] = useState(false);
-  const [vendorSortMode, setVendorSortMode] = useState<'name' | 'recent'>('recent');
+  const [vendorSortMode, setVendorSortMode] = useState<'name' | 'manual'>('manual');
   const [errorInfo, setErrorInfo] = useState<FirestoreErrorInfo | null>(null);
   const [isSeedModalOpen, setIsSeedModalOpen] = useState(false);
   const [bulkFile, setBulkFile] = useState<File | null>(null);
@@ -867,6 +867,7 @@ export default function App() {
             fax: row['팩스번호'] || row['Fax'] || '',
             email: row['이메일'] || row['Email'] || '',
             password: String(row['비밀번호'] || row['Password'] || '1234'),
+            order: count,
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp()
           };
@@ -1141,8 +1142,12 @@ export default function App() {
       });
     }
 
-    // Default: Sort by newest first
+    // Default: Sort by order field
     return [...vendors].sort((a, b) => {
+      const orderA = a.order ?? 0;
+      const orderB = b.order ?? 0;
+      if (orderA !== orderB) return orderA - orderB;
+      
       const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
       const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
       return timeB - timeA;
@@ -1215,6 +1220,7 @@ export default function App() {
       priceTableUrl,
       priceTableFileType,
       priceTableFileName,
+      order: vendors.length,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     };
@@ -1406,6 +1412,26 @@ export default function App() {
       updateComparisonRow(id, field, value);
       delete debouncedUpdateRefs.current[key];
     }, 800);
+  };
+ 
+  const moveVendor = async (currentIndex: number, direction: 'up' | 'down') => {
+    const newIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+    if (newIndex < 0 || newIndex >= sortedVendors.length) return;
+
+    const vendor1 = sortedVendors[currentIndex];
+    const vendor2 = sortedVendors[newIndex];
+
+    try {
+      // In manual mode, sortedVendors are sorted by their .order property.
+      // Swapping their order values swaps their positions.
+      const currentOrder = vendor1.order ?? currentIndex;
+      const targetOrder = vendor2.order ?? newIndex;
+
+      await updateDoc(doc(db, 'vendors', vendor1.id), { order: targetOrder });
+      await updateDoc(doc(db, 'vendors', vendor2.id), { order: currentOrder });
+    } catch (error) {
+      console.error("Error moving vendor:", error);
+    }
   };
 
   const moveComparisonRow = async (rowIndex: number, direction: 'up' | 'down') => {
@@ -1742,9 +1768,9 @@ export default function App() {
                 {isAdminMode && (
                   <div className="flex items-center gap-1">
                     <button 
-                      onClick={() => setVendorSortMode(prev => prev === 'name' ? 'recent' : 'name')}
+                      onClick={() => setVendorSortMode(prev => prev === 'name' ? 'manual' : 'name')}
                       className={`p-1.5 rounded-md transition-colors ${vendorSortMode === 'name' ? 'text-indigo-600 bg-indigo-50' : 'text-slate-400 hover:bg-slate-200'}`}
-                      title="가나다순 정렬 토글"
+                      title={vendorSortMode === 'name' ? "기본 순서로 정렬" : "가나다순 정렬"}
                     >
                       <ArrowUpDown className="h-4 w-4" />
                     </button>
@@ -1805,13 +1831,39 @@ export default function App() {
                   </div>
                   <div className="flex items-center gap-2">
                     {isAdminMode && (
-                      <button
-                        onClick={(e) => deleteVendor(vendor.id, e)}
-                        className="opacity-0 group-hover:opacity-100 p-1 hover:bg-rose-100 hover:text-rose-600 rounded transition-all"
-                        title="업체 삭제"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
+                      <div className="flex items-center gap-0.5">
+                        {vendorSortMode === 'manual' && (
+                          <>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                moveVendor(index, 'up');
+                              }}
+                              disabled={index === 0}
+                              className="p-1 text-slate-400 hover:bg-slate-100 hover:text-indigo-600 rounded disabled:opacity-30"
+                            >
+                              <ChevronUp className="h-3 w-3" />
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                moveVendor(index, 'down');
+                              }}
+                              disabled={index === sortedVendors.length - 1}
+                              className="p-1 text-slate-400 hover:bg-slate-100 hover:text-indigo-600 rounded disabled:opacity-30"
+                            >
+                              <ChevronDown className="h-3 w-3" />
+                            </button>
+                          </>
+                        )}
+                        <button
+                          onClick={(e) => deleteVendor(vendor.id, e)}
+                          className="opacity-0 group-hover:opacity-100 p-1 hover:bg-rose-100 hover:text-rose-600 rounded transition-all"
+                          title="업체 삭제"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
                     )}
                     {selectedVendor?.id === vendor.id && (
                       <div className="w-1.5 h-1.5 rounded-full bg-indigo-600" />
