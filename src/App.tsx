@@ -747,11 +747,18 @@ export default function App() {
     if (selectedVendor) {
       const q = query(
         collection(db, 'vendors', selectedVendor.id, 'prices'), 
-        orderBy('order', 'asc')
+        orderBy('itemName', 'asc')
       );
       const unsubscribe = onSnapshot(q, (snapshot) => {
         const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PriceItem));
-        setPriceItems(data);
+        // Ensure sorting in frontend as well to be robust (in case index is still building)
+        const sortedData = [...data].sort((a, b) => {
+          const nameCompare = a.itemName.localeCompare(b.itemName, 'ko');
+          if (nameCompare !== 0) return nameCompare;
+          // Use numeric sorting for specs (e.g., 10A < 50A < 100A)
+          return (a.spec || '').localeCompare(b.spec || '', undefined, { numeric: true, sensitivity: 'base' });
+        });
+        setPriceItems(sortedData);
       }, (error) => {
         handleFirestoreError(error, OperationType.LIST, `vendors/${selectedVendor.id}/prices`);
       });
@@ -1312,6 +1319,9 @@ export default function App() {
             <div className="p-4 flex items-center justify-between border-b border-slate-50 bg-[#FBFBFC]" id="sidebar-header">
               <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
                 거래처
+                <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-full font-medium">
+                  {sortedVendors.length}
+                </span>
               </h2>
               {isAdminMode && (
                 <button 
@@ -1324,7 +1334,7 @@ export default function App() {
               )}
             </div>
             <div className="flex-1 overflow-y-auto px-2 py-4 space-y-0.5" id="vendor-list-container">
-              {sortedVendors.map((vendor) => (
+              {sortedVendors.map((vendor, index) => (
                 <div
                   key={vendor.id}
                   id={`vendor-btn-${vendor.id}`}
@@ -1338,7 +1348,10 @@ export default function App() {
                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                   }`}
                 >
-                  <span className="truncate">{vendor.name}</span>
+                  <div className="flex items-center gap-2 truncate">
+                    <span className="text-[10px] font-mono text-slate-400 w-4 tabular-nums shrink-0">{index + 1}</span>
+                    <span className="truncate">{vendor.name}</span>
+                  </div>
                   <div className="flex items-center gap-2">
                     {isAdminMode && (
                       <button
