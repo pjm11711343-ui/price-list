@@ -119,6 +119,7 @@ export default function App() {
   const [selectedVendor, setSelectedVendor] = useState<Vendor | null>(null);
   const [isAddingVendor, setIsAddingVendor] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [vendorSearchTerm, setVendorSearchTerm] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
   const [isVerified, setIsVerified] = useState<string | null>(null); // Tracks which vendor ID is verified
   const [loading, setLoading] = useState(true);
@@ -1054,13 +1055,14 @@ export default function App() {
   }, [selectedVendor?.priceTableUrl, selectedVendor?.priceTableFileType, isVerified, selectedVendor?.id]);
 
   const baseSortedVendors = useMemo(() => {
-    const stripPrefix = (name: string) => {
-      return name.replace(/^(\(주\)|주식회사)\s?/, '');
+    const cleanName = (name: string) => {
+      // Remove (주), 주식회사, (주 ), 주 ) from anywhere in the string for sorting
+      return name.replace(/\(주\)|주식회사|\(주\s?\)|주\s?\)/g, '').trim();
     };
 
     return [...vendors].sort((a, b) => {
-      const nameA = stripPrefix(a.name);
-      const nameB = stripPrefix(b.name);
+      const nameA = cleanName(a.name);
+      const nameB = cleanName(b.name);
       return nameA.localeCompare(nameB, 'ko');
     });
   }, [vendors]);
@@ -1068,10 +1070,10 @@ export default function App() {
   const sortedVendors = useMemo(() => {
     return baseSortedVendors
       .filter(v => 
-        v.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        v.representative?.toLowerCase().includes(searchTerm.toLowerCase())
+        v.name.toLowerCase().includes(vendorSearchTerm.toLowerCase()) ||
+        v.representative?.toLowerCase().includes(vendorSearchTerm.toLowerCase())
       );
-  }, [baseSortedVendors, searchTerm]);
+  }, [baseSortedVendors, vendorSearchTerm]);
 
   const handleAddVendor = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -1650,22 +1652,42 @@ export default function App() {
         {/* 2. SIDEBAR */}
         {!isDeepLinkMode && (
           <aside className="w-64 bg-white border-r border-slate-200 flex flex-col shrink-0 overflow-hidden">
-            <div className="p-4 flex items-center justify-between border-b border-slate-50 bg-[#FBFBFC]" id="sidebar-header">
-              <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                거래처
-                <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-full font-medium">
-                  {sortedVendors.length}
-                </span>
-              </h2>
-              {isAdminMode && (
-                <button 
-                  onClick={() => setIsAddingVendor(true)}
-                  className="p-1.5 hover:bg-slate-200 rounded-md transition-colors"
-                  id="add-vendor-btn"
-                >
-                  <Plus className="h-4 w-4 text-slate-600" />
-                </button>
-              )}
+            <div className="p-4 border-b border-slate-50 bg-[#FBFBFC]" id="sidebar-header">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                  거래처
+                  <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-full font-medium">
+                    {sortedVendors.length}
+                  </span>
+                </h2>
+                {isAdminMode && (
+                  <button 
+                    onClick={() => setIsAddingVendor(true)}
+                    className="p-1.5 hover:bg-slate-200 rounded-md transition-colors"
+                    id="add-vendor-btn"
+                  >
+                    <Plus className="h-4 w-4 text-slate-600" />
+                  </button>
+                )}
+              </div>
+              <div className="relative group">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 group-focus-within:text-indigo-500 transition-colors" />
+                <input 
+                  type="text" 
+                  placeholder="거래처 검색..."
+                  value={vendorSearchTerm}
+                  onChange={(e) => setVendorSearchTerm(e.target.value)}
+                  className="w-full bg-white border border-slate-200 rounded-lg pl-9 pr-3 py-1.5 text-xs focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all outline-none"
+                />
+                {vendorSearchTerm && (
+                  <button 
+                    onClick={() => setVendorSearchTerm('')}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 hover:bg-slate-100 rounded-full"
+                  >
+                    <X className="h-3 w-3 text-slate-400" />
+                  </button>
+                )}
+              </div>
             </div>
             <div className="flex-1 overflow-y-auto px-2 py-4 space-y-0.5" id="vendor-list-container">
               {sortedVendors.map((vendor, index) => (
