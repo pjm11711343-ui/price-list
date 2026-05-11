@@ -1986,7 +1986,13 @@ export default function App() {
                             />
                           </td>
                           <td className={`px-4 text-right font-mono font-medium h-full ${item.negoType === 'sts_pipe' ? 'text-indigo-600 font-bold' : 'text-slate-600'}`}>
-                            {item.costPrice.toLocaleString()}
+                            <input 
+                              type="number"
+                              step="any"
+                              value={item.costPrice}
+                              onChange={(e) => handleInlinePriceUpdate(item.id, 'costPrice', Number(e.target.value))}
+                              className={`w-full bg-transparent border-none text-right p-0 outline-none focus:ring-0 appearance-none font-bold ${item.negoType === 'sts_pipe' ? 'text-indigo-600' : 'text-slate-600'}`}
+                            />
                           </td>
                           <td className="px-4 text-right font-mono font-bold text-emerald-600/80 bg-slate-50/10 text-xs">
                             {item.negoType === 'sts_pipe' ? '-' : `▼${getRoundedValue(discount, item.useRounding).toLocaleString()}`}
@@ -1998,17 +2004,26 @@ export default function App() {
                           </td>
                           <td className="px-4 text-slate-500 font-medium truncate">{item.maker || '-'}</td>
                           {canManageItems && (
-                            <td className="px-4 text-center">
-                              <button 
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  deletePriceItem(item.id);
-                                }}
-                                className="p-1 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded transition-all opacity-0 group-hover:opacity-100"
-                                title="품목 삭제"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </button>
+                            <td className="px-4 py-2">
+                              <div className="flex items-center justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button 
+                                  onClick={() => setEditingPriceId(item.id)}
+                                  className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
+                                  title="상세 수정"
+                                >
+                                  <Edit2 className="h-3.5 w-3.5" />
+                                </button>
+                                <button 
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    deletePriceItem(item.id);
+                                  }}
+                                  className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"
+                                  title="품목 삭제"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
                             </td>
                           )}
                         </tr>
@@ -2802,6 +2817,113 @@ export default function App() {
                 </button>
               </div>
             </div>
+          </Modal>
+        )}
+
+        {/* Editing Price Item Modal */}
+        {editingPriceId && (
+          <Modal 
+            key="modal-edit-price" 
+            title="품목 정보 수정" 
+            onClose={() => setEditingPriceId(null)}
+          >
+            {(() => {
+              const item = priceItems.find(p => p.id === editingPriceId);
+              if (!item) return <p className="text-slate-400 p-8 text-center">항목을 찾을 수 없습니다.</p>;
+              
+              return (
+                <form 
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const formData = new FormData(e.currentTarget);
+                    handleUpdatePriceItem(editingPriceId, {
+                      itemName: formData.get('itemName') as string,
+                      itemCode: formData.get('itemCode') as string,
+                      category: formData.get('category') as string,
+                      spec: formData.get('spec') as string,
+                      unit: formData.get('unit') as string,
+                      costPrice: Number(formData.get('costPrice') || 0),
+                      negoRate: Number(formData.get('negoRate') || 0),
+                      negoType: formData.get('negoType') as 'percent' | 'sts_pipe',
+                      weight: Number(formData.get('weight') || 0),
+                      useRounding: formData.get('useRounding') === 'on',
+                      maker: formData.get('maker') as string,
+                      remarks: formData.get('remarks') as string,
+                    });
+                  }}
+                  className="space-y-6"
+                >
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-2 col-span-full">
+                      <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">품목명 *</label>
+                      <input name="itemName" defaultValue={item.itemName} required className="w-full rounded-xl border-2 border-slate-100 bg-slate-50 p-4 font-bold focus:border-indigo-500 outline-none" />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">품번</label>
+                      <input name="itemCode" defaultValue={item.itemCode} className="w-full rounded-xl border-2 border-slate-100 bg-slate-50 p-4 font-bold focus:border-indigo-500 outline-none" />
+                    </div>
+                    <div className="space-y-2">
+                       <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">카테고리</label>
+                       <select name="category" defaultValue={item.category} className="w-full rounded-xl border-2 border-slate-100 bg-slate-50 p-4 font-bold focus:border-indigo-500 outline-none appearance-none">
+                         <option value="">선택 안함</option>
+                         {categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                       </select>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">규격</label>
+                      <input name="spec" defaultValue={item.spec} className="w-full rounded-xl border-2 border-slate-100 bg-slate-50 p-4 font-bold focus:border-indigo-500 outline-none" />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">단위</label>
+                      <input name="unit" defaultValue={item.unit} className="w-full rounded-xl border-2 border-slate-100 bg-slate-50 p-4 font-bold focus:border-indigo-500 outline-none" />
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">협가 / 단중 *</label>
+                      <input name="costPrice" type="number" step="any" defaultValue={item.costPrice} required className="w-full rounded-xl border-2 border-indigo-50 bg-indigo-50/10 p-4 font-bold text-indigo-700 focus:border-indigo-500 outline-none" />
+                      <p className="text-[9px] text-slate-400">※ STS 방식일 경우 단중을, 아닐 경우 협가(원)를 입력하세요.</p>
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-600">네고 상세 방식 & 값 *</label>
+                      <div className="flex gap-2">
+                        <select name="negoType" defaultValue={item.negoType || 'percent'} className="rounded-xl border-2 border-indigo-100 bg-indigo-50/30 p-4 font-bold text-indigo-700 outline-none">
+                          <option value="percent">네고율 (%)</option>
+                          <option value="sts_pipe">STS (KG단가)</option>
+                        </select>
+                        <input name="negoRate" type="number" step="any" defaultValue={item.negoRate} required className="flex-1 rounded-xl border-2 border-indigo-100 bg-indigo-50/30 p-4 font-bold text-indigo-700 focus:border-indigo-500 outline-none" />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">참조 단중 (KG/M)</label>
+                      <input name="weight" type="number" step="any" defaultValue={item.weight} className="w-full rounded-xl border-2 border-slate-100 bg-slate-50 p-4 font-medium focus:border-indigo-500 outline-none" />
+                    </div>
+
+                    <div className="space-y-2 flex items-center pt-6">
+                      <label className="flex items-center gap-3 cursor-pointer">
+                        <input type="checkbox" name="useRounding" defaultChecked={item.useRounding !== undefined ? item.useRounding : (selectedVendor?.roundingMethod !== 'none')} className="w-5 h-5 rounded border-slate-300 text-indigo-600" />
+                        <span className="text-sm font-bold text-slate-700">10원 단위 반올림 적용</span>
+                      </label>
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">제조사</label>
+                      <input name="maker" defaultValue={item.maker} className="w-full rounded-xl border-2 border-slate-100 bg-slate-50 p-4 font-medium focus:border-indigo-500 outline-none" />
+                    </div>
+                    <div className="space-y-2 col-span-full">
+                      <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">비고</label>
+                      <textarea name="remarks" defaultValue={item.remarks} rows={2} className="w-full rounded-xl border-2 border-slate-100 bg-slate-50 p-4 font-medium focus:border-indigo-500 outline-none"></textarea>
+                    </div>
+                  </div>
+                  
+                  <div className="flex gap-3 pt-6 border-t border-slate-100">
+                    <button type="button" onClick={() => setEditingPriceId(null)} className="flex-1 p-4 rounded-xl border-2 border-slate-100 font-bold text-slate-400 hover:bg-slate-50">취소</button>
+                    <button type="submit" className="flex-1 p-4 rounded-xl bg-slate-900 text-white font-bold hover:bg-slate-800 shadow-xl shadow-slate-200">수정 내역 저장</button>
+                  </div>
+                </form>
+              );
+            })()}
           </Modal>
         )}
 
