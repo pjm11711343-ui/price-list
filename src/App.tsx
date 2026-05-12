@@ -28,7 +28,6 @@ import {
   ArrowUpDown,
   History,
   RotateCcw,
-  Scale,
   ArrowLeftRight,
   GripVertical,
   BarChart3,
@@ -171,8 +170,6 @@ export default function App() {
   const [addItemNegoType, setAddItemNegoType] = useState<'percent' | 'sts_pipe'>('percent');
   const [selectedPriceIds, setSelectedPriceIds] = useState<Set<string>>(new Set());
   const [isBulkAdjustModalOpen, setIsBulkAdjustModalOpen] = useState(false);
-  const [comparisonItems, setComparisonItems] = useState<PriceItem[]>([]);
-  const [isComparisonModalOpen, setIsComparisonModalOpen] = useState(false);
   const [bulkAdjustValue, setBulkAdjustValue] = useState<number>(0);
   const [bulkAdjustType, setBulkAdjustType] = useState<'percent'>('percent');
   const [isDeepLinkMode, setIsDeepLinkMode] = useState(false);
@@ -328,6 +325,12 @@ export default function App() {
     
     return () => unsubscribe();
   }, [isAdminMode]);
+
+  useEffect(() => {
+    if (!isAdminMode && viewMode === 'matrix') {
+      setViewMode('detail');
+    }
+  }, [isAdminMode, viewMode]);
 
   const updateVendorCategories = async (newCategories: string[]) => {
     if (!selectedVendor) return;
@@ -1294,21 +1297,6 @@ export default function App() {
     return items;
   }, [priceItems, priceSortField, priceSortOrder]);
 
-  const toggleComparison = (item: PriceItem) => {
-    setComparisonItems(prev => {
-      const vId = item.vendorId || selectedVendor?.id;
-      const exists = prev.find(i => i.id === item.id && i.vendorId === vId);
-      if (exists) {
-        return prev.filter(i => !(i.id === item.id && i.vendorId === vId));
-      }
-      if (prev.length >= 4) {
-        alert('최대 4개 품목까지만 비교 가능합니다.');
-        return prev;
-      }
-      return [...prev, { ...item, vendorId: vId, vendorName: selectedVendor?.name }];
-    });
-  };
-
   const handlePriceSort = (field: 'itemName' | 'spec' | 'order') => {
     if (priceSortField === field) {
       setPriceSortOrder(priceSortOrder === 'asc' ? 'desc' : 'asc');
@@ -1773,16 +1761,18 @@ export default function App() {
                 >
                   거래처별 단가표
                 </button>
-                <button 
-                  onClick={() => {
-                    setViewMode('matrix');
-                    setIsDeepLinkMode(false);
-                    setSelectedVendor(null);
-                  }}
-                  className={`text-sm font-medium transition-colors ${viewMode === 'matrix' ? 'text-indigo-600 font-bold underline underline-offset-8' : 'text-slate-600 hover:text-indigo-600'}`}
-                >
-                  단가 통합 비교
-                </button>
+                {isAdminMode && (
+                  <button 
+                    onClick={() => {
+                      setViewMode('matrix');
+                      setIsDeepLinkMode(false);
+                      setSelectedVendor(null);
+                    }}
+                    className={`text-sm font-medium transition-colors ${viewMode === 'matrix' ? 'text-indigo-600 font-bold underline underline-offset-8' : 'text-slate-600 hover:text-indigo-600'}`}
+                  >
+                    단가 통합 비교
+                  </button>
+                )}
                 {selectedVendor && (
                   <div className="flex items-center gap-2 ml-4">
                     <div className="h-4 w-[1px] bg-slate-200" />
@@ -2605,9 +2595,6 @@ export default function App() {
                           className="w-3.5 h-3.5 rounded border-slate-300 text-indigo-600 ring-offset-0 focus:ring-0 cursor-pointer"
                         />
                       </th>
-                      <th className="w-10 px-4 text-center relative border-r border-slate-50">
-                        <Scale className="h-3.5 w-3.5 mx-auto" />
-                      </th>
                       <th className="px-4 text-left font-semibold relative border-r border-slate-50 group/th cursor-pointer hover:bg-slate-50 transition-colors" style={{ width: columnWidths.itemCode }}>
                         품번
                         <div 
@@ -2735,19 +2722,6 @@ export default function App() {
                               onChange={() => toggleSelectItem(item.id)}
                               className="w-3.5 h-3.5 rounded border-slate-300 text-indigo-600 cursor-pointer"
                             />
-                          </td>
-                          <td className="px-4 text-center">
-                            <button
-                              onClick={() => toggleComparison(item)}
-                              className={`p-1.5 rounded-lg transition-colors ${
-                                comparisonItems.find(i => i.id === item.id && i.vendorId === (item.vendorId || selectedVendor?.id))
-                                  ? 'bg-rose-500 text-white shadow-sm shadow-rose-200'
-                                  : 'text-slate-300 hover:bg-slate-100 hover:text-slate-600'
-                              }`}
-                              title={comparisonItems.find(i => i.id === item.id && i.vendorId === (item.vendorId || selectedVendor?.id)) ? '비교 목록에서 제거' : '비교 목록에 추가 (최대 4개)'}
-                            >
-                              <ArrowLeftRight className="h-3 w-3" />
-                            </button>
                           </td>
                           <td className="px-4 text-slate-400 font-mono text-[10px] leading-none">{item.itemCode || `DP-${String(idx+1).padStart(3, '0')}`}</td>
                           <td className="px-4 font-bold text-slate-800 truncate relative">
@@ -4095,189 +4069,9 @@ export default function App() {
           </motion.div>
         )}
 
-        {/* FLOATING COMPARISON BAR */}
-        {comparisonItems.length > 0 && (
-          <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[60]">
-            <motion.div 
-              initial={{ y: 50, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              className="bg-slate-900/90 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl p-2 px-4 pr-2 flex items-center gap-4 text-white"
-            >
-              <div className="flex -space-x-3">
-                {comparisonItems.map((item) => (
-                  <div key={`${item.vendorId}_${item.id}`} className="w-10 h-10 rounded-xl border-2 border-slate-900 bg-indigo-500/20 backdrop-blur flex items-center justify-center text-[10px] font-black overflow-hidden ring-1 ring-white/10 uppercase">
-                    {item.vendorName ? item.vendorName.substring(0, 2) : '?'}
-                  </div>
-                ))}
-              </div>
-              <div className="flex flex-col">
-                <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Comparison Room</span>
-                <span className="text-xs font-bold text-indigo-300">{comparisonItems.length}/4 selected</span>
-              </div>
-              <button 
-                onClick={() => setIsComparisonModalOpen(true)}
-                className="bg-indigo-500 hover:bg-indigo-400 text-white font-black px-6 py-3 rounded-xl transition-all shadow-lg shadow-indigo-500/20 text-xs"
-              >
-                비교하기
-              </button>
-              <button 
-                onClick={() => setComparisonItems([])}
-                className="p-3 text-slate-400 hover:text-white transition-colors"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </motion.div>
-          </div>
-        )}
 
-        {/* COMPARISON MODAL */}
-        <AnimatePresence>
-          {isComparisonModalOpen && (
-            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 md:p-12 text-slate-800">
-              <motion.div 
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                onClick={() => setIsComparisonModalOpen(false)}
-                className="absolute inset-0 bg-slate-950/80 backdrop-blur-md"
-              />
-              <motion.div 
-                initial={{ scale: 0.95, opacity: 0, y: 20 }}
-                animate={{ scale: 1, opacity: 1, y: 0 }}
-                exit={{ scale: 0.95, opacity: 0, y: 20 }}
-                className="relative w-full max-w-7xl max-h-[90vh] bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col"
-              >
-                <div className="p-8 border-b border-slate-100 flex items-center justify-between shrink-0">
-                  <div>
-                    <h2 className="text-2xl font-black text-slate-900 tracking-tight">품목 비교표 (Table Comparison)</h2>
-                    <p className="text-sm text-slate-400 font-medium mt-1">선택한 최대 4개의 품목을 한눈에 비교합니다.</p>
-                  </div>
-                  <button 
-                    onClick={() => setIsComparisonModalOpen(false)}
-                    className="p-4 rounded-2xl bg-slate-50 text-slate-400 hover:bg-slate-100 hover:text-slate-900 transition-all font-bold"
-                  >
-                    <X className="h-6 w-6" />
-                  </button>
-                </div>
 
-                <div className="flex-1 overflow-auto p-4 md:p-8">
-                  <div className="border border-slate-200 rounded-3xl overflow-hidden shadow-xl bg-white">
-                    <table className="w-full text-sm border-collapse font-medium">
-                      <thead className="bg-slate-900 text-white">
-                        <tr className="h-14">
-                          <th className="px-6 text-left font-black text-[10px] uppercase tracking-[0.2em] bg-slate-800 border-r border-slate-700 w-48">구분 / 속성</th>
-                          {comparisonItems.map((item) => (
-                            <th key={`comp-head-${item.vendorId}-${item.id}`} className="px-6 text-center border-r border-slate-700 min-w-[200px]">
-                              <div className="flex flex-col items-center gap-1">
-                                <span className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">{item.vendorName}</span>
-                                <span className="text-sm font-black tracking-tight line-clamp-1">{item.itemName}</span>
-                              </div>
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        <tr className="h-12 bg-slate-50/50">
-                          <td className="px-6 font-bold text-slate-500 border-r border-slate-100 bg-slate-50">카테고리</td>
-                          {comparisonItems.map((item) => (
-                            <td key={`comp-cat-${item.vendorId}-${item.id}`} className="px-6 text-center border-r border-slate-100 text-xs font-bold text-slate-700">{item.category || '-'}</td>
-                          ))}
-                        </tr>
-                        <tr className="h-12">
-                          <td className="px-6 font-bold text-slate-500 border-r border-slate-100 bg-slate-50">규격 (단위)</td>
-                          {comparisonItems.map((item) => (
-                            <td key={`comp-spec-${item.vendorId}-${item.id}`} className="px-6 text-center border-r border-slate-100 font-bold text-slate-700">
-                              {item.spec || '-'} <span className="text-slate-400">({item.unit || '-'})</span>
-                            </td>
-                          ))}
-                        </tr>
-                        <tr className="h-12">
-                          <td className="px-6 font-bold text-slate-500 border-r border-slate-100 bg-slate-50">협가 / 네고율</td>
-                          {comparisonItems.map((item) => (
-                            <td key={`comp-cost-${item.vendorId}-${item.id}`} className="px-6 text-center border-r border-slate-100 font-mono">
-                              <span className="font-bold">₩{(item.costPrice || 0).toLocaleString()}</span>
-                              <span className="ml-2 text-[10px] font-black text-rose-500 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-100">
-                                {item.negoType === 'sts_pipe' ? `(STS) ${item.negoRate.toLocaleString()}` : `${item.negoRate}%`}
-                              </span>
-                            </td>
-                          ))}
-                        </tr>
-                        <tr className="h-20 bg-indigo-50/30">
-                          <td className="px-6 font-black text-indigo-600 border-r border-indigo-100 bg-indigo-50/50 text-base">최종 구매단가</td>
-                          {comparisonItems.map((item) => (
-                            <td key={`comp-price-${item.vendorId}-${item.id}`} className="px-6 text-center border-r border-indigo-100">
-                              <div className="flex flex-col items-center">
-                                <span className="text-xl font-black text-indigo-700 leading-none">
-                                  ₩{getRoundedValue(item.unitPrice, item.useRounding).toLocaleString()}
-                                </span>
-                                <span className="text-[9px] font-bold text-indigo-400 mt-1 uppercase tracking-tighter">
-                                  Final Net Price
-                                </span>
-                              </div>
-                            </td>
-                          ))}
-                        </tr>
-                        <tr className="h-12">
-                          <td className="px-6 font-bold text-slate-500 border-r border-slate-100 bg-slate-50">메이커</td>
-                          {comparisonItems.map((item) => (
-                            <td key={`comp-maker-${item.vendorId}-${item.id}`} className="px-6 text-center border-r border-slate-100 text-xs font-bold text-slate-600">{item.maker || '-'}</td>
-                          ))}
-                        </tr>
-                        <tr className="h-12">
-                          <td className="px-6 font-bold text-slate-500 border-r border-slate-100 bg-slate-50">단중</td>
-                          {comparisonItems.map((item) => (
-                            <td key={`comp-weight-${item.vendorId}-${item.id}`} className="px-6 text-center border-r border-slate-100 text-xs font-bold text-slate-600">{item.weight || 0} kg/m</td>
-                          ))}
-                        </tr>
-                        <tr className="h-16">
-                          <td className="px-6 font-bold text-slate-500 border-r border-slate-100 bg-slate-50">비고</td>
-                          {comparisonItems.map((item) => (
-                            <td key={`comp-remarks-${item.vendorId}-${item.id}`} className="px-6 text-center border-r border-slate-100 text-[11px] text-slate-500 leading-tight">
-                              <div className="max-h-12 overflow-y-auto w-full italic">
-                                {item.remarks || '-'}
-                              </div>
-                            </td>
-                          ))}
-                        </tr>
-                        <tr className="h-12">
-                          <td className="px-6 font-bold text-slate-500 border-r border-slate-100 bg-slate-50">동작</td>
-                          {comparisonItems.map((item) => (
-                            <td key={`comp-action-${item.vendorId}-${item.id}`} className="px-6 text-center border-r border-slate-100">
-                              <button 
-                                onClick={() => toggleComparison(item)}
-                                className="text-xs font-bold text-rose-500 hover:text-rose-600 hover:bg-rose-50 px-3 py-1.5 rounded-full transition-all"
-                              >
-                                이 품목 제거
-                              </button>
-                            </td>
-                          ))}
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
 
-                <div className="p-8 bg-slate-50 flex items-center justify-between shrink-0">
-                  <p className="text-sm font-bold text-slate-400">※ {comparisonItems.length}개의 품목이 비교 중입니다.</p>
-                  <div className="flex gap-4">
-                    <button 
-                      onClick={() => { setComparisonItems([]); setIsComparisonModalOpen(false); }}
-                      className="px-8 py-4 bg-white border border-slate-200 text-slate-600 font-black rounded-2xl hover:bg-slate-100 transition-all text-sm"
-                    >
-                      목록 전체 비우기
-                    </button>
-                    <button 
-                      onClick={() => setIsComparisonModalOpen(false)}
-                      className="px-10 py-4 bg-slate-900 text-white font-black rounded-2xl hover:bg-slate-800 transition-all shadow-xl shadow-slate-900/10 text-sm"
-                    >
-                      비교 종료
-                    </button>
-                  </div>
-                </div>
-              </motion.div>
-            </div>
-          )}
-        </AnimatePresence>
       </AnimatePresence>
     </div>
   );
