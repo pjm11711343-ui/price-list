@@ -534,8 +534,9 @@ export default function App() {
       for (let i = 0; i < targets.length; i += chunkSize) {
         const chunk = targets.slice(i, i + chunkSize);
         const batch = writeBatch(db);
-        chunk.forEach(id => {
-          batch.update(doc(db, 'vendors', selectedVendor.id, 'prices', id), {
+        const vId = selectedVendor.id;
+        chunk.forEach((id: string) => {
+          batch.update(doc(db, 'vendors', vId, 'prices', id), {
             category: newCategory,
             updatedAt: serverTimestamp()
           });
@@ -745,6 +746,7 @@ export default function App() {
           const data = d.data();
           return {
             '품번': data.itemCode || '',
+            '카테고리': data.category || '',
             '품명': data.itemName || '',
             '규격': data.spec || '',
             '단위': data.unit || '',
@@ -780,6 +782,7 @@ export default function App() {
       const workbook = XLSX.utils.book_new();
       const exportData = priceItems.map(item => ({
         '품번': item.itemCode || '',
+        '카테고리': item.category || '',
         '품명': item.itemName || '',
         '규격': item.spec || '',
         '단위': item.unit || '',
