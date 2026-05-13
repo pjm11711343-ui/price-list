@@ -218,19 +218,25 @@ export default function App() {
   const [matrixVendorIds, setMatrixVendorIds] = useState<Set<string>>(new Set());
   const [showOnlySelectedVendors, setShowOnlySelectedVendors] = useState(false);
 
-  // Filter prices for matrix based on selected vendors
+  // Filter vendors for matrix based on selection
   const filteredVendors = useMemo(() => {
-    if (showOnlySelectedVendors && matrixVendorIds.size > 0) {
+    if (matrixVendorIds.size > 0) {
       return vendors.filter(v => matrixVendorIds.has(v.id));
     }
     return vendors;
-  }, [vendors, matrixVendorIds, showOnlySelectedVendors]);
+  }, [vendors, matrixVendorIds]);
 
   // Matrix Processing: Group items by Name + Spec
   const matrixData = useMemo(() => {
-    const grouped: Record<string, { itemName: string; spec: string; unit: string; category: string; prices: Record<string, number> }> = {};
+    const grouped: Record<string, { 
+      itemName: string; 
+      spec: string; 
+      unit: string; 
+      category: string; 
+      prices: Record<string, { unitPrice: number; negoRate: number; negoType: 'percent' | 'sts_pipe' }> 
+    }> = {};
     
-    // Filter allPrices based on current search, category, and selected vendors
+    // Filter allPrices based on current search and category
     const filtered = allPrices.filter(item => {
       const matchesSearch = searchTerm === '' || 
         item.itemName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -238,7 +244,10 @@ export default function App() {
       
       const matchesCategory = matrixCategory === '전체' || item.category === matrixCategory;
       
-      const matchesVendorSelection = !showOnlySelectedVendors || matrixVendorIds.size === 0 || matrixVendorIds.has(item.vendorId);
+      // If we are filtering vendors, only show rows that have prices in at least one of the selected vendors
+      // But we can keep all filtered rows for now, the columns will be filtered.
+      // Actually, it's better to only show items that appear in at least one of the SELECTED vendors if filtering is active.
+      const matchesVendorSelection = matrixVendorIds.size === 0 || matrixVendorIds.has(item.vendorId);
       
       return matchesSearch && matchesCategory && matchesVendorSelection;
     });
@@ -254,11 +263,15 @@ export default function App() {
           prices: {}
         };
       }
-      grouped[key].prices[item.vendorId] = item.unitPrice;
+      grouped[key].prices[item.vendorId] = {
+        unitPrice: item.unitPrice,
+        negoRate: item.negoRate,
+        negoType: item.negoType || 'percent'
+      };
     });
 
     return Object.values(grouped).sort((a, b) => a.itemName.localeCompare(b.itemName));
-  }, [allPrices, searchTerm, matrixCategory, matrixVendorIds, showOnlySelectedVendors]);
+  }, [allPrices, searchTerm, matrixCategory, matrixVendorIds]);
 
   const matrixCategories = useMemo(() => {
     return ['전체', ...Array.from(new Set(allPrices.map(p => p.category).filter(c => c && c !== '전체')))];
@@ -2066,7 +2079,7 @@ export default function App() {
                        </div>
                        <div className="flex items-center gap-2">
                           <span className="text-[10px] font-bold text-slate-400 bg-slate-50 px-2 py-1 rounded border border-slate-100">
-                             총 {matrixData.length}개 품목</span>{matrixVendorIds.size > 0 && <div className="flex items-center gap-2 ml-3"><button onClick={() => { setMatrixVendorIds(new Set()); setShowOnlySelectedVendors(false); }} className="text-[10px] font-bold text-slate-400 hover:text-red-500 bg-white px-2 py-0.5 rounded border border-slate-100 cursor-pointer">초기화({matrixVendorIds.size})</button><button onClick={() => setShowOnlySelectedVendors(!showOnlySelectedVendors)} className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border cursor-pointer ${showOnlySelectedVendors ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-slate-200 text-slate-600'}`}>{showOnlySelectedVendors ? '전체' : '비교'}</button></div>}<span>
+                             총 {matrixData.length}개 품목</span>{matrixVendorIds.size > 0 && <div className="flex items-center gap-2 ml-3"><button onClick={() => { setMatrixVendorIds(new Set()); }} className="text-[10px] font-bold text-slate-400 hover:text-red-500 bg-white px-2 py-0.5 rounded border border-slate-100 cursor-pointer">선택 해제({matrixVendorIds.size})</button></div>}<span>
                           </span>
                        </div>
                      </div>
@@ -2117,10 +2130,11 @@ export default function App() {
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
-                              {matrixData.map((row, idx) => {
-                                // Find min price for highlighting
-                                const priceValues = Object.values(row.prices) as number[];
-                                const minPrice = priceValues.length > 0 ? Math.min(...priceValues) : null;
+                                {matrixData.map((row, idx) => {
+                                  // Find min price for highlighting
+                                  const priceEntries = Object.values(row.prices) as any[];
+                                  const priceValues = priceEntries.map(p => p.unitPrice);
+                                  const minPrice = priceValues.length > 0 ? Math.min(...priceValues) : null;
                                 
                                 return (
                                   <tr key={`matrix-row-${idx}`} className="hover:bg-indigo-50/30 transition-colors h-10 group">
@@ -2142,7 +2156,8 @@ export default function App() {
                                     <td className="px-4 text-slate-500 font-bold border-r border-slate-100 truncate">{row.spec}</td>
                                     <td className="px-3 text-center text-slate-400 border-r border-slate-100">{row.unit}</td>
                                     {filteredVendors.map(vendor => {
-                                      const priceValue = row.prices[vendor.id];
+                                      const entry = row.prices[vendor.id];
+                                      const priceValue = entry?.unitPrice;
                                       const isMin = priceValue && minPrice && priceValue === minPrice && priceValues.length > 1;
                                       
                                       return (
@@ -2152,10 +2167,12 @@ export default function App() {
                                             isMin ? 'bg-emerald-50 text-emerald-700 font-black' : 'text-slate-600'
                                           }`}
                                         >
-                                          {priceValue ? (
+                                          {entry ? (
                                             <div className="flex flex-col items-center">
-                                              <span>₩{Number(priceValue).toLocaleString()}</span>
-                                              {isMin && <span className="text-[8px] uppercase tracking-tighter bg-emerald-100 px-1 rounded mt-0.5">BEST</span>}
+                                              <span>₩{entry.unitPrice.toLocaleString()}</span>
+                                              <span className="text-[8px] font-black text-indigo-400 opacity-70">
+                                                 {entry.negoType === 'sts_pipe' ? `STS ${entry.negoRate}` : `${entry.negoRate}%`}
+                                              </span>
                                             </div>
                                           ) : (
                                             <span className="text-slate-200">데이터 없음</span>
