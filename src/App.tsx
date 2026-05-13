@@ -284,6 +284,7 @@ export default function App() {
   const [bulkNegoValue, setBulkNegoValue] = useState(5);
   const [columnWidths, setColumnWidths] = useState({
     itemCode: 100,
+    category: 100,
     itemName: 250,
     maker: 120,
     spec: 150,
@@ -518,6 +519,34 @@ export default function App() {
     } catch (error) {
       console.error("Error adjusting prices:", error);
       alert('가격 조정 중 오류가 발생했습니다.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleBulkCategoryUpdate = async (newCategory: string) => {
+    if (!selectedVendor || selectedPriceIds.size === 0 || !newCategory) return;
+    
+    try {
+      setLoading(true);
+      const targets = Array.from(selectedPriceIds);
+      const chunkSize = 400;
+      for (let i = 0; i < targets.length; i += chunkSize) {
+        const chunk = targets.slice(i, i + chunkSize);
+        const batch = writeBatch(db);
+        chunk.forEach(id => {
+          batch.update(doc(db, 'vendors', selectedVendor.id, 'prices', id), {
+            category: newCategory,
+            updatedAt: serverTimestamp()
+          });
+        });
+        await batch.commit();
+      }
+      alert(`선택한 ${targets.length}개 품목의 카테고리가 '${newCategory}'(으)로 변경되었습니다.`);
+      setSelectedPriceIds(new Set());
+    } catch (error) {
+      console.error("Error bulk updating categories:", error);
+      alert('카테고리 변경 중 오류가 발생했습니다.');
     } finally {
       setLoading(false);
     }
@@ -2285,6 +2314,27 @@ export default function App() {
                         <span className="absolute right-1 text-[9px] text-slate-400 font-bold">%</span>
                       </div>
                     </div>
+                    <div className="h-3 w-[1px] bg-slate-200" />
+                    <div className="flex items-center gap-2">
+                       <span className="text-[10px] font-medium text-slate-500 whitespace-nowrap">카테고리 이동</span>
+                       <select 
+                         onChange={(e) => {
+                           const val = e.target.value;
+                           if (val && selectedPriceIds.size > 0) {
+                             if (confirm(`${selectedPriceIds.size}개 품목의 카테고리를 '${val}'(으)로 변경하시겠습니까?`)) {
+                               handleBulkCategoryUpdate(val);
+                             }
+                             e.target.value = "";
+                           }
+                         }}
+                         className="h-7 bg-slate-50 border border-slate-200 rounded px-2 text-[10px] font-bold text-slate-600 outline-none focus:ring-1 focus:ring-indigo-500 transition-all hover:bg-slate-100 cursor-pointer"
+                       >
+                         <option value="">카테고리 선택</option>
+                         {categories.filter(c => c !== '전체').map(cat => (
+                           <option key={`bulk-cat-opt-${cat}`} value={cat}>{cat}</option>
+                         ))}
+                       </select>
+                    </div>
                     <button 
                       onClick={async () => {
                         if (selectedPriceIds.size === 0) return;
@@ -2602,6 +2652,13 @@ export default function App() {
                           className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-indigo-400 transition-colors bg-transparent z-10"
                         />
                       </th>
+                      <th className="px-4 text-left font-semibold relative border-r border-slate-50 group/th" style={{ width: columnWidths.category }}>
+                        카테고리
+                        <div 
+                          onMouseDown={(e) => startResize(e, 'category')}
+                          className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-indigo-400 transition-colors bg-transparent z-10"
+                        />
+                      </th>
                       <th className="px-4 text-left font-semibold relative border-r border-slate-50 group/th cursor-pointer hover:bg-slate-50 transition-colors" style={{ width: columnWidths.itemName }} onClick={() => handlePriceSort('itemName')}>
                         <div className="flex items-center gap-1">
                           품명
@@ -2724,6 +2781,18 @@ export default function App() {
                             />
                           </td>
                           <td className="px-4 text-slate-400 font-mono text-[10px] leading-none">{item.itemCode || `DP-${String(idx+1).padStart(3, '0')}`}</td>
+                          <td className="px-1 text-center">
+                            <select 
+                              value={item.category || ''} 
+                              onChange={(e) => handleInlinePriceUpdate(item.id, 'category', e.target.value)}
+                              className="w-full bg-transparent border-none text-[10px] font-bold text-slate-500 outline-none focus:ring-0 appearance-none cursor-pointer hover:text-indigo-600 transition-colors"
+                            >
+                              <option value="">미지정</option>
+                              {categories.filter(c => c !== '전체').map(cat => (
+                                <option key={`inline-cat-opt-${item.id}-${cat}`} value={cat}>{cat}</option>
+                              ))}
+                            </select>
+                          </td>
                           <td className="px-4 font-bold text-slate-800 truncate relative">
                             {item.itemName}
                             {item.hasPendingUpdate && (
