@@ -215,13 +215,16 @@ export default function App() {
     fetchAllPrices();
   }, [viewMode, vendors.length]);
 
-  const [matrixVendorIds, setMatrixVendorIds] = useState<Set<string>>(new Set());
+  const [matrixVendorIds, setMatrixVendorIds] = useState<string[]>([]);
   const [showOnlySelectedVendors, setShowOnlySelectedVendors] = useState(false);
 
-  // Filter vendors for matrix based on selection
+  // Filter vendors for matrix based on selection, preserving click order
   const filteredVendors = useMemo(() => {
-    if (matrixVendorIds.size > 0) {
-      return vendors.filter(v => matrixVendorIds.has(v.id));
+    if (matrixVendorIds.length > 0) {
+      // Map based on matrixVendorIds order
+      return matrixVendorIds
+        .map(id => vendors.find(v => v.id === id))
+        .filter((v): v is Vendor => !!v);
     }
     return vendors;
   }, [vendors, matrixVendorIds]);
@@ -247,7 +250,7 @@ export default function App() {
       // If we are filtering vendors, only show rows that have prices in at least one of the selected vendors
       // But we can keep all filtered rows for now, the columns will be filtered.
       // Actually, it's better to only show items that appear in at least one of the SELECTED vendors if filtering is active.
-      const matchesVendorSelection = matrixVendorIds.size === 0 || matrixVendorIds.has(item.vendorId);
+      const matchesVendorSelection = matrixVendorIds.length === 0 || matrixVendorIds.includes(item.vendorId);
       
       return matchesSearch && matchesCategory && matchesVendorSelection;
     });
@@ -1958,10 +1961,8 @@ export default function App() {
                       onClick={() => {
                         if (viewMode === 'matrix') {
                           setMatrixVendorIds(prev => {
-                            const next = new Set(prev);
-                            if (next.has(vendor.id)) next.delete(vendor.id);
-                            else next.add(vendor.id);
-                            return next;
+                            if (prev.includes(vendor.id)) return prev.filter(id => id !== vendor.id);
+                            return [...prev, vendor.id];
                           });
                         } else {
                           setSelectedVendor(vendor);
@@ -1969,7 +1970,7 @@ export default function App() {
                         }
                       }}
                       className={`w-full cursor-pointer text-left px-4 py-2.5 rounded-lg text-sm font-medium transition-all flex items-center justify-between group ${
-                        (viewMode === 'matrix' ? matrixVendorIds.has(vendor.id) : selectedVendor?.id === vendor.id)
+                        (viewMode === 'matrix' ? matrixVendorIds.includes(vendor.id) : selectedVendor?.id === vendor.id)
                         ? 'bg-indigo-50 text-indigo-700' 
                         : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                       }`}
@@ -1978,11 +1979,11 @@ export default function App() {
                         <GripVertical className="h-3.5 w-3.5 text-slate-300 group-hover:text-slate-400 shrink-0" />
                         {viewMode === 'matrix' && (
                           <div className={`w-4 h-4 rounded border flex items-center justify-center transition-all ${
-                            matrixVendorIds.has(vendor.id) 
+                            matrixVendorIds.includes(vendor.id) 
                               ? 'bg-indigo-600 border-indigo-600 shadow-sm' 
                               : 'bg-white border-slate-300'
                           }`}>
-                            {matrixVendorIds.has(vendor.id) && (
+                            {matrixVendorIds.includes(vendor.id) && (
                               <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={4}>
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                               </svg>
@@ -2017,10 +2018,8 @@ export default function App() {
                     onClick={() => {
                       if (viewMode === 'matrix') {
                         setMatrixVendorIds(prev => {
-                          const next = new Set(prev);
-                          if (next.has(vendor.id)) next.delete(vendor.id);
-                          else next.add(vendor.id);
-                          return next;
+                          if (prev.includes(vendor.id)) return prev.filter(id => id !== vendor.id);
+                          return [...prev, vendor.id];
                         });
                       } else {
                         setSelectedVendor(vendor);
@@ -2028,15 +2027,15 @@ export default function App() {
                       }
                     }}
                     className={`w-full cursor-pointer text-left px-4 py-2.5 rounded-lg text-sm font-medium transition-all flex items-center justify-between group ${
-                      (viewMode === 'matrix' ? matrixVendorIds.has(vendor.id) : selectedVendor?.id === vendor.id)
+                      (viewMode === 'matrix' ? matrixVendorIds.includes(vendor.id) : selectedVendor?.id === vendor.id)
                       ? 'bg-indigo-50 text-indigo-700' 
                       : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                     }`}
                   >
                     <div className="flex items-center gap-2 truncate">
                       {viewMode === 'matrix' && (
-                        <div className={`w-3.5 h-3.5 rounded border border-slate-300 flex items-center justify-center transition-all ${matrixVendorIds.has(vendor.id) ? 'bg-indigo-600 border-indigo-600' : 'bg-white'}`}>
-                          {matrixVendorIds.has(vendor.id) && <div className="w-1.5 h-1.5 bg-white rounded-full scale-50" />}
+                        <div className={`w-3.5 h-3.5 rounded border border-slate-300 flex items-center justify-center transition-all ${matrixVendorIds.includes(vendor.id) ? 'bg-indigo-600 border-indigo-600' : 'bg-white'}`}>
+                          {matrixVendorIds.includes(vendor.id) && <div className="w-1.5 h-1.5 bg-white rounded-full scale-50" />}
                         </div>
                       )}
                       <span className="text-[10px] font-mono text-slate-400 w-4 tabular-nums shrink-0">{index + 1}</span>
@@ -2079,7 +2078,7 @@ export default function App() {
                        </div>
                        <div className="flex items-center gap-2">
                           <span className="text-[10px] font-bold text-slate-400 bg-slate-50 px-2 py-1 rounded border border-slate-100">
-                             총 {matrixData.length}개 품목</span>{matrixVendorIds.size > 0 && <div className="flex items-center gap-2 ml-3"><button onClick={() => { setMatrixVendorIds(new Set()); }} className="text-[10px] font-bold text-slate-400 hover:text-red-500 bg-white px-2 py-0.5 rounded border border-slate-100 cursor-pointer">선택 해제({matrixVendorIds.size})</button></div>}<span>
+                             총 {matrixData.length}개 품목</span>{matrixVendorIds.length > 0 && <div className="flex items-center gap-2 ml-3"><button onClick={() => { setMatrixVendorIds([]); }} className="text-[10px] font-bold text-slate-400 hover:text-red-500 bg-white px-2 py-0.5 rounded border border-slate-100 cursor-pointer">선택 해제({matrixVendorIds.length})</button></div>}<span>
                           </span>
                        </div>
                      </div>
