@@ -18,9 +18,23 @@
       "path": "pending_updates",
       "schema": "PendingPriceUpdate",
       "description": "Approval queue for price changes requested by vendors"
+    },
+    "settings": {
+      "path": "settings",
+      "schema": "AdminSettings",
+      "description": "System settings including admin password"
     }
   },
   "entities": {
+    "AdminSettings": {
+      "title": "Admin Settings",
+      "description": "Sensitive system configuration",
+      "type": "object",
+      "properties": {
+        "password": { "type": "string" }
+      },
+      "required": ["password"]
+    },
     "Vendor": {
       "title": "Vendor",
       "description": "A supplier or manufacturing company",

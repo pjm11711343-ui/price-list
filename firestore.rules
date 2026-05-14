@@ -2,26 +2,9 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // Global Deny
-    match /{document=**} {
-      allow read, write: if false;
-    }
-
-    // Helpers
-    function isSignedIn() {
-      return request.auth != null;
-    }
-
-    function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
-    }
-
-    function incoming() {
-      return request.resource.data;
-    }
-
-    function existing() {
-      return resource.data;
+    // System settings
+    match /settings/{docId} {
+      allow read, write: if true;
     }
 
     // Connection Test
@@ -29,74 +12,28 @@ service cloud.firestore {
       allow read: if true;
     }
 
-    // Vendor Validation Helper
-    function isValidVendor(data) {
-      let name = data.get('name', null);
-      // More relaxed validation but still checking for basic types if present
-      return (name == null || name is string)
-          && (data.get('categories', null) == null || data.get('categories', []) is list)
-          && (data.get('updatedAt', null) == null || data.get('updatedAt', timestamp.date(2000, 1, 1)) is timestamp);
-    }
-
-    // Price Validation Helper
-    function isValidPrice(data) {
-      return (data.get('vendorId', null) is string)
-          && (data.get('itemName', null) == null || data.get('itemName', '') is string)
-          && (data.get('itemCode', null) == null || data.get('itemCode', '') is string)
-          && (data.get('category', null) == null || data.get('category', '') is string)
-          && (data.get('spec', null) == null || data.get('spec', '') is string)
-          && (data.get('unit', null) == null || data.get('unit', '') is string)
-          && (data.get('costPrice', null) == null || data.get('costPrice', 0) is number)
-          && (data.get('negoRate', null) == null || data.get('negoRate', 0) is number)
-          && (data.get('unitPrice', null) == null || data.get('unitPrice', 0) is number)
-          && (data.get('updatedAt', null) == null || data.get('updatedAt', timestamp.date(2000, 1, 1)) is timestamp);
-    }
-
-    // Comparison Row Validation Helper
-    function isValidComparisonRow(data) {
-      return data.category is string && data.category.size() > 0
-          && (data.vendor1 == null || data.vendor1 is string)
-          && (data.vendor2 == null || data.vendor2 is string)
-          && (data.vendor3 == null || data.vendor3 is string)
-          && (data.vendor4 == null || data.vendor4 is string)
-          && (data.order is number);
-    }
-
-    // Pending Update Validation Helper
-    function isValidPendingUpdate(data) {
-      return data.vendorId is string
-          && data.priceItemId is string
-          && data.status in ['pending', 'approved', 'rejected']
-          && data.requestedAt is timestamp;
-    }
-
+    // Pending Updates
     match /pending_updates/{updateId} {
-      allow read, write: if true; // In prototype, we allow access.
-      // allow create: if isValidPendingUpdate(incoming());
-      // allow update: if isValidPendingUpdate(incoming());
+      allow read, write: if true;
     }
 
+    // Main Collections
     match /vendors/{vendorId} {
-      // For a prototype without forced Auth, we allow read/write.
-      // In a real app, we would restrict based on request.auth.
       allow read: if true;
-      allow create: if isValidVendor(incoming());
-      allow update: if isValidVendor(incoming());
-      allow delete: if true;
+      allow create, update, delete: if true; // Prototype mode
 
       match /prices/{priceId} {
-        allow read: if true;
-        allow create: if isValidPrice(incoming());
-        allow update: if isValidPrice(incoming());
-        allow delete: if true;
+        allow read, write: if true;
       }
 
       match /handling_items/{itemId} {
-        allow read: if true;
-        allow create: if isValidComparisonRow(incoming());
-        allow update: if isValidComparisonRow(incoming());
-        allow delete: if true;
+        allow read, write: if true;
       }
+    }
+
+    // Global Deny
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

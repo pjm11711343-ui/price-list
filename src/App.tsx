@@ -57,6 +57,8 @@ import {
   orderBy, 
   serverTimestamp,
   getDocs,
+  getDoc,
+  setDoc,
   getDocFromServer,
   writeBatch
 } from 'firebase/firestore';
@@ -173,10 +175,74 @@ export default function App() {
   const [bulkAdjustValue, setBulkAdjustValue] = useState<number>(0);
   const [bulkAdjustType, setBulkAdjustType] = useState<'percent'>('percent');
   const [isDeepLinkMode, setIsDeepLinkMode] = useState(false);
+  const [isGuestMode, setIsGuestMode] = useState(false);
+  const [newAdminPassword, setNewAdminPassword] = useState('');
+  const [isChangingAdminPassword, setIsChangingAdminPassword] = useState(false);
+  const [adminPassword, setAdminPassword] = useState('admin1234');
   const [adminPasswordInput, setAdminPasswordInput] = useState('');
   const [showAdminLogin, setShowAdminLogin] = useState(false);
   const [copySuccess, setCopySuccess] = useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  // Fetch admin password from Firestore
+  useEffect(() => {
+    const fetchAdminSettings = async () => {
+      try {
+        const adminRef = doc(db, 'settings', 'admin');
+        const adminSnap = await getDoc(adminRef);
+        
+        if (adminSnap.exists()) {
+          setAdminPassword(adminSnap.data().password);
+        } else {
+          try {
+            // Initialize if not exists
+            await setDoc(adminRef, { password: 'admin1234' });
+            setAdminPassword('admin1234');
+          } catch (writeError) {
+            handleFirestoreError(writeError, OperationType.WRITE, 'settings/admin');
+          }
+        }
+      } catch (error) {
+        console.error("Error fetching admin settings:", error);
+        // Only throw if it's a permission error we want to debug
+        if (error instanceof Error && error.message.includes('permissions')) {
+           handleFirestoreError(error, OperationType.GET, 'settings/admin');
+        }
+      }
+    };
+    fetchAdminSettings();
+  }, []);
+
+  const handleUpdateAdminPassword = async () => {
+    if (!newAdminPassword) return;
+    try {
+      setLoading(true);
+      await updateDoc(doc(db, 'settings', 'admin'), {
+        password: newAdminPassword
+      });
+      setAdminPassword(newAdminPassword);
+      setIsChangingAdminPassword(false);
+      setNewAdminPassword('');
+      alert('관리자 비밀번호가 성공적으로 변경되었습니다.');
+    } catch (error) {
+      console.error("Error updating admin password:", error);
+      alert('비밀번호 변경 중 오류가 발생했습니다.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const copyGuestLink = () => {
+    let baseOrigin = window.location.origin;
+    if (baseOrigin.includes('ais-dev-')) {
+      baseOrigin = baseOrigin.replace('ais-dev-', 'ais-pre-');
+    }
+    const url = new URL(baseOrigin);
+    url.searchParams.set('g', '1');
+    navigator.clipboard.writeText(url.toString());
+    setCopySuccess(true);
+    setTimeout(() => setCopySuccess(false), 2000);
+  };
 
   const [adminNotification, setAdminNotification] = useState(false);
   const [isNotesExpanded, setIsNotesExpanded] = useState(true);
@@ -344,10 +410,10 @@ export default function App() {
   }, [isAdminMode]);
 
   useEffect(() => {
-    if (!isAdminMode && viewMode === 'matrix') {
+    if (!isAdminMode && !isGuestMode && viewMode === 'matrix') {
       setViewMode('detail');
     }
-  }, [isAdminMode, viewMode]);
+  }, [isAdminMode, isGuestMode, viewMode]);
 
   const updateVendorCategories = async (newCategories: string[]) => {
     if (!selectedVendor) return;
@@ -400,8 +466,8 @@ export default function App() {
     };
   }, [resizing]);
 
-  const canManageItems = isAdminMode || (selectedVendor && (isVerified === selectedVendor.id || isDeepLinkMode));
-  const isActuallyAuthorized = isAdminMode || (selectedVendor && isVerified === selectedVendor.id);
+  const canManageItems = !isGuestMode && (isAdminMode || (selectedVendor && (isVerified === selectedVendor.id || isDeepLinkMode)));
+  const isActuallyAuthorized = !isGuestMode && (isAdminMode || (selectedVendor && isVerified === selectedVendor.id));
 
   const toggleSelectItem = (id: string) => {
     setSelectedPriceIds(prev => {
@@ -880,6 +946,13 @@ export default function App() {
     // Check deep link first
     const params = new URLSearchParams(window.location.search);
     const urlVendorId = params.get('v');
+    const urlGuestMode = params.get('g');
+
+    if (urlGuestMode === '1') {
+      setIsGuestMode(true);
+    } else {
+      setIsGuestMode(false);
+    }
 
     if (urlVendorId) {
       const vendor = vendors.find(v => v.id === urlVendorId);
@@ -923,7 +996,7 @@ export default function App() {
 
   const handleAdminLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (adminPasswordInput === 'admin1234') { // Default admin password
+    if (adminPasswordInput === adminPassword) { 
       setIsAdminMode(true);
       setShowAdminLogin(false);
       setAdminPasswordInput('');
@@ -1787,33 +1860,66 @@ export default function App() {
             <span className="text-lg font-bold text-slate-800 tracking-tighter">(주)명신기공 <span className="font-medium text-slate-500">단가관리</span></span>
           </div>
           <nav className="flex items-center gap-6">
-            {!isDeepLinkMode ? (
-              <>
+            {!isDeepLinkMode && !isGuestMode ? (
+              <div className="flex items-center gap-2">
                 <button 
                   onClick={() => isAdminMode ? setIsAdminMode(false) : setShowAdminLogin(true)}
-                  className="text-sm font-medium text-slate-600 hover:text-indigo-600 transition-colors"
+                  className={`flex items-center gap-1.5 text-sm font-bold transition-colors ${isAdminMode ? 'text-indigo-600' : 'text-slate-600 hover:text-indigo-600'}`}
                 >
+                  <User className="h-4 w-4" />
                   {isAdminMode ? '관리모드 해제' : '관리자'}
                 </button>
+                {isAdminMode && (
+                  <div className="flex items-center gap-1 ml-2 border-l border-slate-200 pl-3">
+                    <button 
+                      onClick={() => setIsChangingAdminPassword(true)}
+                      className="text-[11px] font-bold text-slate-400 hover:text-slate-600 bg-slate-100 px-2 py-1 rounded"
+                    >
+                      암호변경
+                    </button>
+                    <button 
+                      onClick={copyGuestLink}
+                      className={`flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded transition-all ${copySuccess ? 'bg-emerald-500 text-white' : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100'}`}
+                    >
+                      <LinkIcon className="h-3 w-3" />
+                      {copySuccess ? '복사됨!' : '게스트링크'}
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : isGuestMode ? (
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-1.5 bg-emerald-50 text-emerald-600 px-3 py-1 rounded-full border border-emerald-100 font-bold">
+                  <Users className="h-3.5 w-3.5" />
+                  <span className="text-xs">게스트 모드</span>
+                </div>
+              </div>
+            ) : selectedVendor && (
+              <div className="flex items-center gap-2">
+                <div className="h-4 w-[1px] bg-slate-200 mr-2" />
+                <span className="text-sm font-bold text-slate-400">전용 포탈</span>
+                <span className="text-sm font-black text-indigo-600">{selectedVendor.name}</span>
+              </div>
+            )}
+
+            {!isDeepLinkMode && (
+              <div className="flex items-center gap-6 border-l border-slate-100 pl-6 h-6">
                 <button 
                   onClick={() => {
                     setViewMode('detail');
-                    setIsDeepLinkMode(false);
                     setSelectedVendor(null);
-                    // Clear URL param
                     const url = new URL(window.location.href);
                     url.searchParams.delete('v');
                     window.history.replaceState({}, '', url);
                   }}
-                  className={`text-sm font-medium transition-colors ${viewMode === 'detail' && !isDeepLinkMode ? 'text-indigo-600 font-bold underline underline-offset-8' : 'text-slate-600 hover:text-indigo-600'}`}
+                  className={`text-sm font-medium transition-colors ${viewMode === 'detail' ? 'text-indigo-600 font-bold underline underline-offset-8' : 'text-slate-600 hover:text-indigo-600'}`}
                 >
                   거래처별 단가표
                 </button>
-                {isAdminMode && (
+                {(isAdminMode || isGuestMode) && (
                   <button 
                     onClick={() => {
                       setViewMode('matrix');
-                      setIsDeepLinkMode(false);
                       setSelectedVendor(null);
                     }}
                     className={`text-sm font-medium transition-colors ${viewMode === 'matrix' ? 'text-indigo-600 font-bold underline underline-offset-8' : 'text-slate-600 hover:text-indigo-600'}`}
@@ -1821,21 +1927,21 @@ export default function App() {
                     단가 통합 비교
                   </button>
                 )}
-                {selectedVendor && (
-                  <div className="flex items-center gap-2 ml-4">
-                    <div className="h-4 w-[1px] bg-slate-200" />
-                    <span className="text-sm font-bold text-indigo-700">{selectedVendor.name}</span>
-                  </div>
-                )}
-              </>
-            ) : selectedVendor && (
-              <div className="flex items-center gap-4">
-                <div className="flex items-center gap-2">
-                  <div className="h-4 w-[1px] bg-slate-200" />
-                  <span className="text-sm font-bold text-slate-400">전용 포탈</span>
-                  <span className="text-sm font-black text-indigo-600">{selectedVendor.name}</span>
-                </div>
               </div>
+            )}
+
+            {isGuestMode && (
+              <button 
+                onClick={() => {
+                   const url = new URL(window.location.href);
+                   url.searchParams.delete('g');
+                   url.searchParams.delete('v');
+                   window.location.href = url.toString();
+                }}
+                className="text-xs font-bold text-slate-400 hover:text-slate-600 underline underline-offset-2 ml-auto"
+              >
+                일반 모드로 전환
+              </button>
             )}
           </nav>
         </div>
@@ -2617,7 +2723,7 @@ export default function App() {
               <div className="flex-1 overflow-auto bg-white relative">
                 {/* Password Overlay */}
                 <AnimatePresence>
-                  {isVerified !== selectedVendor.id && !isAdminMode && (
+                  {isVerified !== selectedVendor.id && !isAdminMode && !isGuestMode && (
                     <motion.div 
                       key="password-overlay"
                       initial={{ opacity: 0 }}
@@ -3795,6 +3901,46 @@ export default function App() {
             </div>
           </Modal>
         )}
+
+        {/* ADMIN PASSWORD CHANGE MODAL */}
+        <AnimatePresence>
+          {isChangingAdminPassword && (
+            <Modal key="modal-change-admin-password" title="관리자 비밀번호 변경" onClose={() => setIsChangingAdminPassword(false)}>
+              <div className="space-y-4">
+                <div className="bg-amber-50 border border-amber-200 p-3 rounded-xl flex items-start gap-3">
+                  <Info className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
+                  <p className="text-xs text-amber-700 leading-relaxed font-medium">
+                    새로운 비밀번호로 변경됩니다. 변경 즉시 전체 시스템에 적용되니 신중히 입력해주세요.
+                  </p>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 mb-2 uppercase tracking-wider">새 비밀번호</label>
+                  <input 
+                    type="password"
+                    value={newAdminPassword}
+                    onChange={(e) => setNewAdminPassword(e.target.value)}
+                    placeholder="새로운 관리자 비밀번호 입력"
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all font-bold placeholder:font-medium"
+                  />
+                </div>
+                <div className="flex gap-3 pt-2">
+                  <button 
+                    onClick={() => setIsChangingAdminPassword(false)}
+                    className="flex-1 px-4 py-3 bg-slate-100 text-slate-600 font-bold rounded-2xl hover:bg-slate-200 transition-all"
+                  >
+                    취소
+                  </button>
+                  <button 
+                    onClick={handleUpdateAdminPassword}
+                    className="flex-[2] px-4 py-3 bg-indigo-600 text-white font-bold rounded-2xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200"
+                  >
+                    비밀번호 변경하기
+                  </button>
+                </div>
+              </div>
+            </Modal>
+          )}
+        </AnimatePresence>
 
         {showAdminLogin && (
           <Modal key="modal-admin-login" title="관리자 시스템 로그인" onClose={() => setShowAdminLogin(false)}>
