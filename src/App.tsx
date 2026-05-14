@@ -302,7 +302,7 @@ export default function App() {
       spec: string; 
       unit: string; 
       category: string; 
-      prices: Record<string, { unitPrice: number; negoRate: number; negoType: 'percent' | 'sts_pipe' }> 
+      prices: Record<string, { unitPrice: number; negoRate: number; negoType: 'percent' | 'sts_pipe'; hasPendingUpdate?: boolean }> 
     }> = {};
     
     // Filter allPrices based on current search and category
@@ -335,7 +335,8 @@ export default function App() {
       grouped[key].prices[item.vendorId] = {
         unitPrice: item.unitPrice,
         negoRate: item.negoRate,
-        negoType: item.negoType || 'percent'
+        negoType: item.negoType || 'percent',
+        hasPendingUpdate: pendingUpdates.some(u => u.priceItemId === item.id && u.status === 'pending')
       };
     });
 
@@ -392,11 +393,6 @@ export default function App() {
   }, [selectedVendor?.id, selectedVendor?.categories]);
 
   useEffect(() => {
-    if (!isAdminMode) {
-      setPendingUpdates([]);
-      return;
-    }
-    
     const q = query(collection(db, 'pending_updates'), orderBy('requestedAt', 'desc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const updates = snapshot.docs.map(doc => ({ 
@@ -407,7 +403,7 @@ export default function App() {
     });
     
     return () => unsubscribe();
-  }, [isAdminMode]);
+  }, []);
 
   useEffect(() => {
     if (!isAdminMode && !isGuestMode && viewMode === 'matrix') {
@@ -1390,7 +1386,10 @@ export default function App() {
   }, [vendors, vendorSortMode]);
 
   const sortedPriceItems = useMemo(() => {
-    let items = [...priceItems];
+    let items = priceItems.map(item => ({
+      ...item,
+      hasPendingUpdate: item.hasPendingUpdate || pendingUpdates.some(u => u.priceItemId === item.id && u.status === 'pending')
+    }));
     
     // Sort by selected field
     items.sort((a, b) => {
@@ -1416,7 +1415,7 @@ export default function App() {
     });
     
     return items;
-  }, [priceItems, priceSortField, priceSortOrder]);
+  }, [priceItems, priceSortField, priceSortOrder, pendingUpdates]);
 
   const handlePriceSort = (field: 'itemName' | 'spec' | 'order') => {
     if (priceSortField === field) {
@@ -2274,7 +2273,12 @@ export default function App() {
                                         >
                                           {entry ? (
                                             <div className="flex flex-col items-center">
-                                              <span>₩{entry.unitPrice.toLocaleString()}</span>
+                                              <div className="flex items-center gap-1 leading-tight">
+                                                <span>₩{entry.unitPrice.toLocaleString()}</span>
+                                                {entry.hasPendingUpdate && (
+                                                  <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse shrink-0" title="승인 대기 중인 변경 요청이 있습니다." />
+                                                )}
+                                              </div>
                                               <span className="text-[8px] font-black text-indigo-400 opacity-70">
                                                  {entry.negoType === 'sts_pipe' ? `STS ${entry.negoRate}` : `${entry.negoRate}%`}
                                               </span>
@@ -2918,13 +2922,16 @@ export default function App() {
                               ))}
                             </select>
                           </td>
-                          <td className="px-4 font-bold text-slate-800 truncate relative">
-                            {item.itemName}
-                            {item.hasPendingUpdate && (
-                              <div className="inline-flex ml-2" title="승인 대기 중인 변경 요청이 있습니다.">
-                                <span className="flex h-2 w-2 rounded-full bg-amber-500"></span>
-                              </div>
-                            )}
+                          <td className="px-4 font-bold text-slate-800 truncate">
+                            <div className="flex items-center gap-2">
+                              {item.itemName}
+                              {item.hasPendingUpdate && (
+                                <div className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-amber-50 rounded border border-amber-200 shrink-0" title="승인 대기 중인 변경 요청이 있습니다.">
+                                  <span className="flex h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+                                  <span className="text-[9px] font-black text-amber-600 uppercase tracking-tighter">변경요청</span>
+                                </div>
+                              )}
+                            </div>
                           </td>
                           <td className="px-4 text-slate-500 font-medium truncate text-xs">{item.spec}</td>
                           <td className="px-4 text-slate-400 font-medium text-xs">{item.unit}</td>
