@@ -159,6 +159,7 @@ export default function App() {
   const [bulkFile, setBulkFile] = useState<File | null>(null);
   const [bulkItemFile, setBulkItemFile] = useState<File | null>(null);
   const [isBulkItemUploadOpen, setIsBulkItemUploadOpen] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
   const [editingPriceId, setEditingPriceId] = useState<string | null>(null);
   const [priceTableFile, setPriceTableFile] = useState<File | null>(null);
   const [excelPreviewData, setExcelPreviewData] = useState<any[] | null>(null);
@@ -3775,8 +3776,23 @@ export default function App() {
               </div>
 
               <div 
-                className="border-2 border-dashed border-slate-200 rounded-3xl p-10 text-center bg-slate-50 hover:border-indigo-400 hover:bg-white transition-all cursor-pointer group"
+                className={`border-2 border-dashed rounded-3xl p-10 text-center transition-all cursor-pointer group ${
+                  isDragging ? 'border-indigo-500 bg-indigo-50 scale-[1.02]' : 'border-slate-200 bg-slate-50 hover:border-indigo-400 hover:bg-white'
+                }`}
                 onClick={() => document.getElementById('price-items-bulk-upload')?.click()}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setIsDragging(true);
+                }}
+                onDragLeave={() => setIsDragging(false)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setIsDragging(false);
+                  const file = e.dataTransfer.files?.[0];
+                  if (file && (file.name.endsWith('.xlsx') || file.name.endsWith('.xls'))) {
+                    setBulkItemFile(file);
+                  }
+                }}
               >
                 <input 
                   id="price-items-bulk-upload"
@@ -3834,8 +3850,23 @@ export default function App() {
               </div>
 
               <div 
-                className="border-2 border-dashed border-slate-200 rounded-2xl p-8 text-center bg-slate-50 hover:border-indigo-400 transition-colors cursor-pointer"
+                className={`border-2 border-dashed rounded-2xl p-8 text-center transition-all cursor-pointer ${
+                  isDragging ? 'border-indigo-500 bg-indigo-50 scale-[1.02]' : 'border-slate-200 bg-slate-50 hover:border-indigo-400'
+                }`}
                 onClick={() => document.getElementById('bulk-excel-upload')?.click()}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setIsDragging(true);
+                }}
+                onDragLeave={() => setIsDragging(false)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setIsDragging(false);
+                  const file = e.dataTransfer.files?.[0];
+                  if (file && (file.name.endsWith('.xlsx') || file.name.endsWith('.xls'))) {
+                    setBulkFile(file);
+                  }
+                }}
               >
                 <input 
                   id="bulk-excel-upload"
