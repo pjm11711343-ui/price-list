@@ -24,6 +24,7 @@ import {
   ChevronUp,
   ChevronDown,
   Info,
+  Megaphone,
   Link as LinkIcon,
   ArrowUpDown,
   History,
@@ -2330,6 +2331,34 @@ export default function App() {
                         <div className="text-[10px] text-slate-400 font-bold bg-slate-50 px-2 py-0.5 rounded border border-slate-100">
                           V-ID: {selectedVendor.id.slice(0, 8)}
                         </div>
+
+                        {selectedVendor.notice && (
+                          <div className="hidden sm:flex items-center gap-2 flex-1 min-w-0">
+                            <div className="w-px h-3 bg-slate-200 mx-1" />
+                            <button 
+                              onClick={() => {
+                                const noticeEl = document.getElementById('vendor-notice-section');
+                                if (noticeEl) {
+                                  noticeEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                  // Add a temporary highlight effect
+                                  noticeEl.classList.add('ring-4', 'ring-amber-400/30');
+                                  setTimeout(() => noticeEl.classList.remove('ring-4', 'ring-amber-400/30'), 2000);
+                                }
+                              }}
+                              className="flex items-center gap-2 px-3 py-1 bg-amber-50 border border-amber-100 rounded-lg text-amber-700 hover:bg-amber-100 hover:border-amber-200 transition-all group truncate max-w-sm"
+                              title="공지사항 바로가기"
+                            >
+                              <div className="bg-amber-500 text-white p-1 rounded-md shrink-0">
+                                <Megaphone className="h-2 w-2" />
+                              </div>
+                              <span className="text-[10px] font-black uppercase tracking-tight shrink-0">공지</span>
+                              <span className="text-[11px] font-bold truncate text-slate-700">
+                                {selectedVendor.notice.split('\n')[0]}
+                                {selectedVendor.notice.split('\n').length > 1 && ' ...'}
+                              </span>
+                            </button>
+                          </div>
+                        )}
                         {isAdminMode && (
                           <div className="inline-flex items-center gap-2">
                             {showVendorPasswords[selectedVendor.id] ? (
@@ -2431,7 +2460,7 @@ export default function App() {
 
               {/* VENDOR NOTICE */}
               {selectedVendor.notice && (
-                <div className="px-6 py-4 bg-white border-b border-slate-100">
+                <div id="vendor-notice-section" className="px-6 py-4 bg-white border-b border-slate-100 transition-all duration-500">
                   <motion.div 
                     initial={{ opacity: 0, y: -10 }}
                     animate={{ opacity: 1, y: 0 }}
