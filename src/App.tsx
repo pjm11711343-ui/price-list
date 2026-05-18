@@ -1487,6 +1487,8 @@ export default function App() {
       email: formData.get('email') as string,
       password: password,
       notes: formData.get('notes') as string,
+      notice: formData.get('notice') as string,
+      noticeUpdatedAt: serverTimestamp(),
       roundingMethod: formData.get('useRounding') === 'on' ? 'round' : 'none',
       masterCustomFlag: formData.get('masterCustomFlag') === 'on',
       categories: ['밸브류', '피팅류', '파이프', 'STS파이프', '프랜지', '기타'],
@@ -1563,6 +1565,8 @@ export default function App() {
       businessNumber: formData.get('businessNumber') as string,
       email: formData.get('email') as string,
       notes: formData.get('notes') as string,
+      notice: formData.get('notice') as string,
+      noticeUpdatedAt: (formData.get('notice') as string) !== (selectedVendor.notice || '') ? serverTimestamp() : (selectedVendor.noticeUpdatedAt || null),
       roundingMethod: formData.get('useRounding') === 'on' ? 'round' : 'none',
       masterCustomFlag: formData.get('masterCustomFlag') === 'on',
       priceTableUrl,
@@ -2425,6 +2429,34 @@ export default function App() {
                 <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-50/30 rounded-full blur-3xl -mr-32 -mt-32 pointer-events-none" />
               </div>
 
+              {/* VENDOR NOTICE */}
+              {selectedVendor.notice && (
+                <div className="px-6 py-4 bg-white border-b border-slate-100">
+                  <motion.div 
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="bg-amber-50 border border-amber-100 rounded-2xl p-5 flex items-start gap-4 shadow-sm"
+                  >
+                    <div className="bg-amber-500 text-white p-2 rounded-xl shrink-0 mt-0.5">
+                      <Info className="h-4 w-4" />
+                    </div>
+                    <div className="flex-1 space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-black text-amber-600 uppercase tracking-widest">업체 공지사항</span>
+                        {selectedVendor.noticeUpdatedAt && (
+                          <span className="text-[9px] text-amber-400/80 font-bold italic">
+                            Updated: {new Date(selectedVendor.noticeUpdatedAt?.seconds * 1000).toLocaleString('ko-KR')}
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-slate-800 font-bold leading-relaxed whitespace-pre-wrap text-sm">
+                        {selectedVendor.notice}
+                      </div>
+                    </div>
+                  </motion.div>
+                </div>
+              )}
+
               {/* TOOLBAR */}
               {canManageItems && (
                 <div className="h-11 border-b border-slate-200 flex items-center justify-between px-6 shrink-0 bg-white z-20 shadow-sm shadow-slate-100">
@@ -3114,6 +3146,10 @@ export default function App() {
                   <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">업체 메모 (비고)</label>
                   <textarea name="notes" rows={4} placeholder="업체와 관련된 상세 정보, 특이사항, 연락 기록 등을 자유롭게 입력하세요." className="w-full rounded-2xl border-2 border-slate-100 bg-slate-50 p-4 font-medium text-slate-800 focus:border-indigo-500 focus:bg-white focus:outline-none transition-all"></textarea>
                 </div>
+                <div className="space-y-2 col-span-full">
+                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-500">업체 공지사항 (업체방 상단 표시)</label>
+                  <textarea name="notice" rows={3} placeholder="업체에게 전달할 공지사항을 입력하세요. 업체방(단가표) 상단에 강조되어 표시됩니다." className="w-full rounded-2xl border-2 border-amber-100 bg-amber-50/30 p-4 font-bold text-slate-800 focus:border-amber-500 focus:bg-white focus:outline-none transition-all"></textarea>
+                </div>
                 <div className="space-y-2">
                   <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">대표자 성함</label>
                   <input name="representative" placeholder="성함 입력" className="w-full rounded-2xl border-2 border-slate-100 bg-slate-50 p-4 font-bold text-slate-800 focus:border-indigo-500 focus:bg-white focus:outline-none transition-all placeholder:text-slate-300" />
@@ -3614,6 +3650,10 @@ export default function App() {
                 <div className="space-y-2 col-span-full">
                   <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">업체 메모 (비고)</label>
                   <textarea name="notes" defaultValue={selectedVendor.notes} rows={4} placeholder="업체와 관련된 상세 정보, 특이사항, 연락 기록 등을 자유롭게 입력하세요." className="w-full rounded-2xl border-2 border-slate-100 bg-slate-50 p-4 font-medium text-slate-800 focus:border-indigo-500 focus:bg-white focus:outline-none transition-all"></textarea>
+                </div>
+                <div className="space-y-2 col-span-full">
+                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-500">업체 공지사항 (업체방 상단 표시)</label>
+                  <textarea name="notice" defaultValue={selectedVendor.notice} rows={3} placeholder="업체에게 전달할 공지사항을 입력하세요. 업체방(단가표) 상단에 강조되어 표시됩니다." className="w-full rounded-2xl border-2 border-amber-100 bg-amber-50/30 p-4 font-bold text-slate-800 focus:border-amber-500 focus:bg-white focus:outline-none transition-all"></textarea>
                 </div>
                 <div className="space-y-2">
                   <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">대표자명</label>

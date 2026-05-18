@@ -21,6 +21,8 @@ export interface Vendor {
   deletedAt?: any;
   createdAt?: any;
   updatedAt?: any;
+  notice?: string;
+  noticeUpdatedAt?: any;
 }
 
 export interface ComparisonRow {

@@ -48,7 +48,9 @@
         "phone": { "type": "string" },
         "fax": { "type": "string" },
         "notes": { "type": "string" },
-        "roundingMethod": { "type": "string" }
+        "roundingMethod": { "type": "string" },
+        "notice": { "type": "string" },
+        "noticeUpdatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["name"]
     },
