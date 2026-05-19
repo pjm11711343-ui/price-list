@@ -1534,8 +1534,10 @@ export default function App() {
     } catch (error: any) {
       console.error("Error adding vendor:", error);
       let msg = error.message || "업체 추가에 실패했습니다.";
-      if (error.code === 'storage/retry-limit-exceeded' || error.code === 'storage/unauthorized') {
-        msg = "Firebase Storage 업로드에 실패했습니다. Storage 활성화 여부나 보안 규칙을 확인해 주세요.";
+      if (error.code === 'storage/retry-limit-exceeded') {
+        msg = "Firebase Storage 업로드 실패: 'Max retry time exceeded'.\n\n이 오류는 보통 Firebase 콘솔에서 Storage 서비스가 활성화되지 않았을 때 발생합니다.\n\n해결 방법:\n1. Firebase 콘솔 -> Storage -> '시작하기' 버튼 클릭\n2. 보안 규칙(Rules) 단계에서 '시작' 또는 적절한 규칙 설정\n3. 프로젝트 상단에 '계속하려면 요금제 업그레이드' 메시지가 있는지 확인";
+      } else if (error.code === 'storage/unauthorized') {
+        msg = "Firebase Storage 권한 오류: 권한이 없습니다.\n\n보안 규칙(Rules)이 업로드를 허용하지 않고 있습니다. storage.rules 파일을 참조하여 규칙을 수정해 주세요.";
       }
       alert(msg);
     } finally {
@@ -1634,8 +1636,10 @@ export default function App() {
     } catch (error: any) {
       console.error("Error updating vendor:", error);
       let msg = error.message || "정보 수정 중 오류가 발생했습니다.";
-      if (error.code === 'storage/retry-limit-exceeded' || error.code === 'storage/unauthorized') {
-        msg = "Firebase Storage 업로드에 실패했습니다. Storage 활성화 여부나 보안 규칙을 확인해 주세요.";
+      if (error.code === 'storage/retry-limit-exceeded') {
+        msg = "Firebase Storage 업로드 실패: 'Max retry time exceeded'.\n\n이 오류는 보통 Firebase 콘솔에서 Storage 서비스가 활성화되지 않았을 때 발생합니다.\n\n해결 방법:\n1. Firebase 콘솔 -> Storage -> '시작하기' 버튼 클릭\n2. 보안 규칙(Rules) 단계에서 '시작' 또는 적절한 규칙 설정\n3. 프로젝트 상단에 '계속하려면 요금제 업그레이드' 메시지가 있는지 확인";
+      } else if (error.code === 'storage/unauthorized') {
+        msg = "Firebase Storage 권한 오류: 권한이 없습니다.\n\n보안 규칙(Rules)이 업로드를 허용하지 않고 있습니다. storage.rules 파일을 참조하여 규칙을 수정해 주세요.";
       }
       alert(msg);
     } finally {

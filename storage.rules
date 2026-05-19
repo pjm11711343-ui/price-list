@@ -1,0 +1,20 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /price_tables/{fileName} {
+      // Allow read access to anyone (public vendor portal)
+      // Change to 'if request.auth != null' if you want to restrict to authenticated users
+      allow read: if true;
+      // Allow write access only to authenticated users (admins)
+      allow write: if request.auth != null;
+    }
+    match /notices/{fileName} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+    // Default deny
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
