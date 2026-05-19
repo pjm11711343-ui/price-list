@@ -163,6 +163,7 @@ export default function App() {
   const [bulkItemFile, setBulkItemFile] = useState<File | null>(null);
   const [isBulkItemUploadOpen, setIsBulkItemUploadOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [isDraggingNotice, setIsDraggingNotice] = useState(false);
   const [editingPriceId, setEditingPriceId] = useState<string | null>(null);
   const [priceTableFile, setPriceTableFile] = useState<File | null>(null);
   const [noticeFile, setNoticeFile] = useState<File | null>(null);
@@ -1445,16 +1446,17 @@ export default function App() {
     const password = formData.get('password') as string;
     
     setIsUploading(true);
-    let priceTableUrl = '';
-    let priceTableFileType: Vendor['priceTableFileType'] = 'unknown';
-    let priceTableFileName = '';
+    
+    try {
+      let priceTableUrl = '';
+      let priceTableFileType: Vendor['priceTableFileType'] = 'unknown';
+      let priceTableFileName = '';
 
-    let noticeFileUrl = '';
-    let noticeFileType: Vendor['noticeFileType'] = 'unknown';
-    let noticeFileName = '';
+      let noticeFileUrl = '';
+      let noticeFileType: Vendor['noticeFileType'] = 'unknown';
+      let noticeFileName = '';
 
-    if (priceTableFile) {
-      try {
+      if (priceTableFile) {
         // File size limit check (e.g., 10MB)
         if (priceTableFile.size > 10 * 1024 * 1024) {
           throw new Error("파일 크기가 너무 큽니다. (최대 10MB)");
@@ -1478,20 +1480,9 @@ export default function App() {
                    fileType === 'text/csv') {
           priceTableFileType = 'excel';
         }
-      } catch (error: any) {
-        console.error("Error uploading price table (Add):", error);
-        setIsUploading(false);
-        let msg = `단가표 파일 업로드에 실패했습니다: ${error.message || "서버 오류"}`;
-        if (error.code === 'storage/retry-limit-exceeded' || error.code === 'storage/unauthorized' || error.message?.includes('retry-limit-exceeded')) {
-          msg = "Firebase Storage 업로드에 실패했습니다.\n\n해결 방법:\n1. Firebase 콘솔의 'Storage' 메뉴에서 '시작하기'를 눌러 서비스를 활성화했는지 확인해 주세요.\n2. Storage 보안 규칙이 업로드를 허용하는지 확인해 주세요. (예: allow read, write: if true;)\n3. 네트워크 상태를 확인하고 다시 시도해 주세요.";
-        }
-        alert(msg);
-        return; // Stop execution if upload fails
       }
-    }
 
-    if (noticeFile) {
-      try {
+      if (noticeFile) {
         if (noticeFile.size > 10 * 1024 * 1024) {
           throw new Error("공지 파일 크기가 너무 큽니다. (최대 10MB)");
         }
@@ -1508,48 +1499,45 @@ export default function App() {
         } else if (fileExt === 'pdf' || fileType === 'application/pdf') {
           noticeFileType = 'pdf';
         }
-      } catch (error: any) {
-        console.error("Error uploading notice file (Add):", error);
-        setIsUploading(false);
-        alert(`공지 파일 업로드 실패: ${error.message}`);
-        return;
       }
-    }
 
-    const newVendor = {
-      name: formData.get('name') as string,
-      phone: formData.get('phone') as string,
-      fax: formData.get('fax') as string,
-      representative: formData.get('representative') as string,
-      businessNumber: formData.get('businessNumber') as string,
-      email: formData.get('email') as string,
-      password: password,
-      notes: formData.get('notes') as string,
-      notice: formData.get('notice') as string,
-      noticeFileUrl,
-      noticeFileType,
-      noticeFileName,
-      noticeUpdatedAt: serverTimestamp(),
-      roundingMethod: formData.get('useRounding') === 'on' ? 'round' : 'none',
-      masterCustomFlag: formData.get('masterCustomFlag') === 'on',
-      categories: ['밸브류', '피팅류', '파이프', 'STS파이프', '프랜지', '기타'],
-      priceTableUrl,
-      priceTableFileType,
-      priceTableFileName,
-      order: vendors.length,
-      deleted: false,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    };
+      const newVendor = {
+        name: formData.get('name') as string,
+        phone: formData.get('phone') as string,
+        fax: formData.get('fax') as string,
+        representative: formData.get('representative') as string,
+        businessNumber: formData.get('businessNumber') as string,
+        email: formData.get('email') as string,
+        password: password,
+        notes: formData.get('notes') as string,
+        notice: formData.get('notice') as string,
+        noticeFileUrl,
+        noticeFileType,
+        noticeFileName,
+        noticeUpdatedAt: serverTimestamp(),
+        roundingMethod: formData.get('useRounding') === 'on' ? 'round' : 'none',
+        masterCustomFlag: formData.get('masterCustomFlag') === 'on',
+        categories: ['밸브류', '피팅류', '파이프', 'STS파이프', '프랜지', '기타'],
+        priceTableUrl,
+        priceTableFileType,
+        priceTableFileName,
+        order: vendors.length,
+        deleted: false,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      };
 
-    try {
       await addDoc(collection(db, 'vendors'), newVendor);
       setIsAddingVendor(false);
       setPriceTableFile(null);
       setNoticeFile(null);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error adding vendor:", error);
-      alert("업체 추가에 실패했습니다.");
+      let msg = error.message || "업체 추가에 실패했습니다.";
+      if (error.code === 'storage/retry-limit-exceeded' || error.code === 'storage/unauthorized') {
+        msg = "Firebase Storage 업로드에 실패했습니다. Storage 활성화 여부나 보안 규칙을 확인해 주세요.";
+      }
+      alert(msg);
     } finally {
       setIsUploading(false);
     }
@@ -1562,16 +1550,16 @@ export default function App() {
     const formData = new FormData(e.currentTarget);
     setIsUploading(true);
 
-    let priceTableUrl = selectedVendor.priceTableUrl || '';
-    let priceTableFileType = selectedVendor.priceTableFileType || 'unknown';
-    let priceTableFileName = selectedVendor.priceTableFileName || '';
+    try {
+      let priceTableUrl = selectedVendor.priceTableUrl || '';
+      let priceTableFileType = selectedVendor.priceTableFileType || 'unknown';
+      let priceTableFileName = selectedVendor.priceTableFileName || '';
 
-    let noticeFileUrl = selectedVendor.noticeFileUrl || '';
-    let noticeFileType = selectedVendor.noticeFileType || 'unknown';
-    let noticeFileName = selectedVendor.noticeFileName || '';
+      let noticeFileUrl = selectedVendor.noticeFileUrl || '';
+      let noticeFileType = selectedVendor.noticeFileType || 'unknown';
+      let noticeFileName = selectedVendor.noticeFileName || '';
 
-    if (priceTableFile) {
-      try {
+      if (priceTableFile) {
         // File size limit check (e.g., 10MB)
         if (priceTableFile.size > 10 * 1024 * 1024) {
           throw new Error("파일 크기가 너무 큽니다. (최대 10MB)");
@@ -1595,20 +1583,9 @@ export default function App() {
                    fileType === 'text/csv') {
           priceTableFileType = 'excel';
         }
-      } catch (error: any) {
-        console.error("Error uploading price table (Update):", error);
-        setIsUploading(false);
-        let msg = `단가표 파일 업로드에 실패했습니다: ${error.message || "서버 오류"}`;
-        if (error.code === 'storage/retry-limit-exceeded' || error.code === 'storage/unauthorized' || error.message?.includes('retry-limit-exceeded')) {
-          msg = "Firebase Storage 업로드에 실패했습니다.\n\n해결 방법:\n1. Firebase 콘솔의 'Storage' 메뉴에서 '시작하기'를 눌러 서비스를 활성화했는지 확인해 주세요.\n2. Storage 보안 규칙이 업로드를 허용하는지 확인해 주세요. (예: allow read, write: if true;)\n3. 네트워크 상태를 확인하고 다시 시도해 주세요.";
-        }
-        alert(msg);
-        return; // Stop execution if upload fails
       }
-    }
 
-    if (noticeFile) {
-      try {
+      if (noticeFile) {
         if (noticeFile.size > 10 * 1024 * 1024) {
           throw new Error("공지 파일 크기가 너무 큽니다. (최대 10MB)");
         }
@@ -1625,45 +1602,42 @@ export default function App() {
         } else if (fileExt === 'pdf' || fileType === 'application/pdf') {
           noticeFileType = 'pdf';
         }
-      } catch (error: any) {
-        console.error("Error uploading notice file (Update):", error);
-        setIsUploading(false);
-        alert(`공지 파일 업로드 실패: ${error.message}`);
-        return;
       }
-    }
 
-    const updatedData = {
-      name: formData.get('name') as string,
-      representative: formData.get('representative') as string,
-      phone: formData.get('phone') as string,
-      fax: formData.get('fax') as string,
-      businessNumber: formData.get('businessNumber') as string,
-      email: formData.get('email') as string,
-      notes: formData.get('notes') as string,
-      notice: formData.get('notice') as string,
-      noticeFileUrl,
-      noticeFileType,
-      noticeFileName,
-      noticeUpdatedAt: (formData.get('notice') as string) !== (selectedVendor.notice || '') || noticeFile ? serverTimestamp() : (selectedVendor.noticeUpdatedAt || null),
-      roundingMethod: formData.get('useRounding') === 'on' ? 'round' : 'none',
-      masterCustomFlag: formData.get('masterCustomFlag') === 'on',
-      priceTableUrl,
-      priceTableFileType,
-      priceTableFileName,
-      updatedAt: serverTimestamp()
-    };
+      const updatedData = {
+        name: formData.get('name') as string,
+        representative: formData.get('representative') as string,
+        phone: formData.get('phone') as string,
+        fax: formData.get('fax') as string,
+        businessNumber: formData.get('businessNumber') as string,
+        email: formData.get('email') as string,
+        notes: formData.get('notes') as string,
+        notice: formData.get('notice') as string,
+        noticeFileUrl,
+        noticeFileType,
+        noticeFileName,
+        noticeUpdatedAt: (formData.get('notice') as string) !== (selectedVendor.notice || '') || noticeFile ? serverTimestamp() : (selectedVendor.noticeUpdatedAt || null),
+        roundingMethod: formData.get('useRounding') === 'on' ? 'round' : 'none',
+        masterCustomFlag: formData.get('masterCustomFlag') === 'on',
+        priceTableUrl,
+        priceTableFileType,
+        priceTableFileName,
+        updatedAt: serverTimestamp()
+      };
 
-    try {
       await updateDoc(doc(db, 'vendors', selectedVendor.id), updatedData);
       setSelectedVendor(prev => prev ? { ...prev, ...updatedData } : null);
       setIsEditingVendorInfo(false);
       setPriceTableFile(null);
       setNoticeFile(null);
       alert('업체 정보가 수정되었습니다.');
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `vendors/${selectedVendor.id}`);
-      alert('정보 수정 중 오류가 발생했습니다.');
+    } catch (error: any) {
+      console.error("Error updating vendor:", error);
+      let msg = error.message || "정보 수정 중 오류가 발생했습니다.";
+      if (error.code === 'storage/retry-limit-exceeded' || error.code === 'storage/unauthorized') {
+        msg = "Firebase Storage 업로드에 실패했습니다. Storage 활성화 여부나 보안 규칙을 확인해 주세요.";
+      }
+      alert(msg);
     } finally {
       setIsUploading(false);
     }
@@ -3315,8 +3289,21 @@ export default function App() {
                     <label 
                       htmlFor="notice-file-upload" 
                       className={`flex items-center gap-3 w-full p-4 border-2 border-dashed rounded-2xl transition-all cursor-pointer ${
-                        noticeFile ? 'border-amber-400 bg-amber-50' : 'border-slate-100 bg-slate-50 hover:border-amber-300 hover:bg-white'
+                        isDraggingNotice ? 'border-amber-500 bg-amber-50 scale-[1.01]' : noticeFile ? 'border-amber-400 bg-amber-50' : 'border-slate-100 bg-slate-50 hover:border-amber-300 hover:bg-white'
                       }`}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        setIsDraggingNotice(true);
+                      }}
+                      onDragLeave={() => setIsDraggingNotice(false)}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        setIsDraggingNotice(false);
+                        const file = e.dataTransfer.files?.[0];
+                        if (file) {
+                          setNoticeFile(file);
+                        }
+                      }}
                     >
                       <div className={`p-2 rounded-xl ${noticeFile ? 'bg-amber-500 text-white' : 'bg-white text-slate-400 shadow-sm'}`}>
                         {noticeFile ? <FileText className="h-4 w-4" /> : <Upload className="h-4 w-4" />}
@@ -3875,8 +3862,21 @@ export default function App() {
                     <label 
                       htmlFor="notice-file-edit-upload" 
                       className={`flex items-center gap-3 w-full p-4 border-2 border-dashed rounded-2xl transition-all cursor-pointer ${
-                        noticeFile ? 'border-amber-400 bg-amber-50' : 'border-slate-100 bg-slate-50 hover:border-amber-300 hover:bg-white'
+                        isDraggingNotice ? 'border-amber-500 bg-amber-50 scale-[1.01]' : noticeFile ? 'border-amber-400 bg-amber-50' : 'border-slate-100 bg-slate-50 hover:border-amber-300 hover:bg-white'
                       }`}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        setIsDraggingNotice(true);
+                      }}
+                      onDragLeave={() => setIsDraggingNotice(false)}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        setIsDraggingNotice(false);
+                        const file = e.dataTransfer.files?.[0];
+                        if (file) {
+                          setNoticeFile(file);
+                        }
+                      }}
                     >
                       <div className={`p-2 rounded-xl ${noticeFile ? 'bg-amber-500 text-white' : 'bg-white text-slate-400 shadow-sm'}`}>
                         {noticeFile ? <FileText className="h-4 w-4" /> : <Upload className="h-4 w-4" />}
