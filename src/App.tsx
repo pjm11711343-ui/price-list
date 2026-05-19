@@ -25,6 +25,8 @@ import {
   ChevronDown,
   Info,
   Megaphone,
+  ExternalLink,
+  Image as ImageIcon,
   Link as LinkIcon,
   ArrowUpDown,
   History,
@@ -163,6 +165,7 @@ export default function App() {
   const [isDragging, setIsDragging] = useState(false);
   const [editingPriceId, setEditingPriceId] = useState<string | null>(null);
   const [priceTableFile, setPriceTableFile] = useState<File | null>(null);
+  const [noticeFile, setNoticeFile] = useState<File | null>(null);
   const [excelPreviewData, setExcelPreviewData] = useState<any[] | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [seedStatus, setSeedStatus] = useState<{ current: number; total: number; isDone: boolean } | null>(null);
@@ -1446,6 +1449,10 @@ export default function App() {
     let priceTableFileType: Vendor['priceTableFileType'] = 'unknown';
     let priceTableFileName = '';
 
+    let noticeFileUrl = '';
+    let noticeFileType: Vendor['noticeFileType'] = 'unknown';
+    let noticeFileName = '';
+
     if (priceTableFile) {
       try {
         // File size limit check (e.g., 10MB)
@@ -1454,17 +1461,21 @@ export default function App() {
         }
 
         const fileExt = priceTableFile.name.split('.').pop()?.toLowerCase();
+        const fileType = priceTableFile.type;
         const fileName = `${Date.now()}_${priceTableFile.name}`;
         const sRef = storageRef(storage, `price_tables/${fileName}`);
         const snapshot = await uploadBytes(sRef, priceTableFile);
         priceTableUrl = await getDownloadURL(snapshot.ref);
         priceTableFileName = priceTableFile.name;
         
-        if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(fileExt || '')) {
+        if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(fileExt || '') || fileType.startsWith('image/')) {
           priceTableFileType = 'image';
-        } else if (fileExt === 'pdf') {
+        } else if (fileExt === 'pdf' || fileType === 'application/pdf') {
           priceTableFileType = 'pdf';
-        } else if (['xlsx', 'xls', 'csv'].includes(fileExt || '')) {
+        } else if (['xlsx', 'xls', 'csv'].includes(fileExt || '') || 
+                   fileType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || 
+                   fileType === 'application/vnd.ms-excel' || 
+                   fileType === 'text/csv') {
           priceTableFileType = 'excel';
         }
       } catch (error: any) {
@@ -1479,6 +1490,32 @@ export default function App() {
       }
     }
 
+    if (noticeFile) {
+      try {
+        if (noticeFile.size > 10 * 1024 * 1024) {
+          throw new Error("공지 파일 크기가 너무 큽니다. (최대 10MB)");
+        }
+        const fileExt = noticeFile.name.split('.').pop()?.toLowerCase();
+        const fileType = noticeFile.type;
+        const fileName = `notice_${Date.now()}_${noticeFile.name}`;
+        const sRef = storageRef(storage, `notices/${fileName}`);
+        const snapshot = await uploadBytes(sRef, noticeFile);
+        noticeFileUrl = await getDownloadURL(snapshot.ref);
+        noticeFileName = noticeFile.name;
+        
+        if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(fileExt || '') || fileType.startsWith('image/')) {
+          noticeFileType = 'image';
+        } else if (fileExt === 'pdf' || fileType === 'application/pdf') {
+          noticeFileType = 'pdf';
+        }
+      } catch (error: any) {
+        console.error("Error uploading notice file (Add):", error);
+        setIsUploading(false);
+        alert(`공지 파일 업로드 실패: ${error.message}`);
+        return;
+      }
+    }
+
     const newVendor = {
       name: formData.get('name') as string,
       phone: formData.get('phone') as string,
@@ -1489,6 +1526,9 @@ export default function App() {
       password: password,
       notes: formData.get('notes') as string,
       notice: formData.get('notice') as string,
+      noticeFileUrl,
+      noticeFileType,
+      noticeFileName,
       noticeUpdatedAt: serverTimestamp(),
       roundingMethod: formData.get('useRounding') === 'on' ? 'round' : 'none',
       masterCustomFlag: formData.get('masterCustomFlag') === 'on',
@@ -1506,6 +1546,7 @@ export default function App() {
       await addDoc(collection(db, 'vendors'), newVendor);
       setIsAddingVendor(false);
       setPriceTableFile(null);
+      setNoticeFile(null);
     } catch (error) {
       console.error("Error adding vendor:", error);
       alert("업체 추가에 실패했습니다.");
@@ -1525,6 +1566,10 @@ export default function App() {
     let priceTableFileType = selectedVendor.priceTableFileType || 'unknown';
     let priceTableFileName = selectedVendor.priceTableFileName || '';
 
+    let noticeFileUrl = selectedVendor.noticeFileUrl || '';
+    let noticeFileType = selectedVendor.noticeFileType || 'unknown';
+    let noticeFileName = selectedVendor.noticeFileName || '';
+
     if (priceTableFile) {
       try {
         // File size limit check (e.g., 10MB)
@@ -1533,17 +1578,21 @@ export default function App() {
         }
 
         const fileExt = priceTableFile.name.split('.').pop()?.toLowerCase();
+        const fileType = priceTableFile.type;
         const fileName = `${Date.now()}_${priceTableFile.name}`;
         const sRef = storageRef(storage, `price_tables/${fileName}`);
         const snapshot = await uploadBytes(sRef, priceTableFile);
         priceTableUrl = await getDownloadURL(snapshot.ref);
         priceTableFileName = priceTableFile.name;
         
-        if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(fileExt || '')) {
+        if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(fileExt || '') || fileType.startsWith('image/')) {
           priceTableFileType = 'image';
-        } else if (fileExt === 'pdf') {
+        } else if (fileExt === 'pdf' || fileType === 'application/pdf') {
           priceTableFileType = 'pdf';
-        } else if (['xlsx', 'xls', 'csv'].includes(fileExt || '')) {
+        } else if (['xlsx', 'xls', 'csv'].includes(fileExt || '') || 
+                   fileType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || 
+                   fileType === 'application/vnd.ms-excel' || 
+                   fileType === 'text/csv') {
           priceTableFileType = 'excel';
         }
       } catch (error: any) {
@@ -1558,6 +1607,32 @@ export default function App() {
       }
     }
 
+    if (noticeFile) {
+      try {
+        if (noticeFile.size > 10 * 1024 * 1024) {
+          throw new Error("공지 파일 크기가 너무 큽니다. (최대 10MB)");
+        }
+        const fileExt = noticeFile.name.split('.').pop()?.toLowerCase();
+        const fileType = noticeFile.type;
+        const fileName = `notice_${Date.now()}_${noticeFile.name}`;
+        const sRef = storageRef(storage, `notices/${fileName}`);
+        const snapshot = await uploadBytes(sRef, noticeFile);
+        noticeFileUrl = await getDownloadURL(snapshot.ref);
+        noticeFileName = noticeFile.name;
+        
+        if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(fileExt || '') || fileType.startsWith('image/')) {
+          noticeFileType = 'image';
+        } else if (fileExt === 'pdf' || fileType === 'application/pdf') {
+          noticeFileType = 'pdf';
+        }
+      } catch (error: any) {
+        console.error("Error uploading notice file (Update):", error);
+        setIsUploading(false);
+        alert(`공지 파일 업로드 실패: ${error.message}`);
+        return;
+      }
+    }
+
     const updatedData = {
       name: formData.get('name') as string,
       representative: formData.get('representative') as string,
@@ -1567,7 +1642,10 @@ export default function App() {
       email: formData.get('email') as string,
       notes: formData.get('notes') as string,
       notice: formData.get('notice') as string,
-      noticeUpdatedAt: (formData.get('notice') as string) !== (selectedVendor.notice || '') ? serverTimestamp() : (selectedVendor.noticeUpdatedAt || null),
+      noticeFileUrl,
+      noticeFileType,
+      noticeFileName,
+      noticeUpdatedAt: (formData.get('notice') as string) !== (selectedVendor.notice || '') || noticeFile ? serverTimestamp() : (selectedVendor.noticeUpdatedAt || null),
       roundingMethod: formData.get('useRounding') === 'on' ? 'round' : 'none',
       masterCustomFlag: formData.get('masterCustomFlag') === 'on',
       priceTableUrl,
@@ -1581,6 +1659,7 @@ export default function App() {
       setSelectedVendor(prev => prev ? { ...prev, ...updatedData } : null);
       setIsEditingVendorInfo(false);
       setPriceTableFile(null);
+      setNoticeFile(null);
       alert('업체 정보가 수정되었습니다.');
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `vendors/${selectedVendor.id}`);
@@ -2333,28 +2412,23 @@ export default function App() {
                         </div>
 
                         {selectedVendor.notice && (
-                          <div className="hidden sm:flex items-center gap-2 flex-1 min-w-0">
-                            <div className="w-px h-3 bg-slate-200 mx-1" />
+                          <div className="flex items-center gap-2 min-w-0">
+                            <div className="hidden xs:block w-px h-3 bg-slate-200 mx-1" />
                             <button 
                               onClick={() => {
                                 const noticeEl = document.getElementById('vendor-notice-section');
                                 if (noticeEl) {
                                   noticeEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                                  // Add a temporary highlight effect
                                   noticeEl.classList.add('ring-4', 'ring-amber-400/30');
                                   setTimeout(() => noticeEl.classList.remove('ring-4', 'ring-amber-400/30'), 2000);
                                 }
                               }}
-                              className="flex items-center gap-2 px-3 py-1 bg-amber-50 border border-amber-100 rounded-lg text-amber-700 hover:bg-amber-100 hover:border-amber-200 transition-all group truncate max-w-sm"
+                              className="flex items-center gap-2 px-2.5 py-1 bg-amber-50 border border-amber-100 rounded-full text-amber-700 hover:bg-amber-100 hover:border-amber-200 transition-all group max-w-[200px] sm:max-w-xs shadow-sm"
                               title="공지사항 바로가기"
                             >
-                              <div className="bg-amber-500 text-white p-1 rounded-md shrink-0">
-                                <Megaphone className="h-2 w-2" />
-                              </div>
-                              <span className="text-[10px] font-black uppercase tracking-tight shrink-0">공지</span>
+                              <Megaphone className="h-2.5 w-2.5 text-amber-500 animate-pulse shrink-0" />
                               <span className="text-[11px] font-bold truncate text-slate-700">
                                 {selectedVendor.notice.split('\n')[0]}
-                                {selectedVendor.notice.split('\n').length > 1 && ' ...'}
                               </span>
                             </button>
                           </div>
@@ -2481,6 +2555,57 @@ export default function App() {
                       <div className="text-slate-800 font-bold leading-relaxed whitespace-pre-wrap text-sm">
                         {selectedVendor.notice}
                       </div>
+                      
+                      {selectedVendor.noticeFileUrl && (
+                        <div className="mt-4 pt-4 border-t border-amber-200/50">
+                          {selectedVendor.noticeFileType === 'image' ? (
+                            <div className="relative group max-w-lg">
+                              <img 
+                                src={selectedVendor.noticeFileUrl} 
+                                alt="Notice Attachment" 
+                                className="rounded-xl shadow-md border border-white max-h-[400px] object-contain bg-white cursor-zoom-in"
+                                onClick={() => window.open(selectedVendor.noticeFileUrl, '_blank')}
+                              />
+                              <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <a 
+                                  href={selectedVendor.noticeFileUrl} 
+                                  target="_blank" 
+                                  rel="noopener noreferrer"
+                                  className="p-2 bg-black/50 backdrop-blur-md text-white rounded-lg hover:bg-black/70 transition-colors"
+                                >
+                                  <ExternalLink className="h-4 w-4" />
+                                </a>
+                              </div>
+                            </div>
+                          ) : selectedVendor.noticeFileType === 'pdf' ? (
+                            <a 
+                              href={selectedVendor.noticeFileUrl} 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-3 px-4 py-3 bg-white border border-rose-100 rounded-xl text-rose-600 hover:bg-rose-50 hover:border-rose-200 transition-all shadow-sm group"
+                            >
+                              <div className="p-2 bg-rose-50 text-rose-500 rounded-lg group-hover:bg-rose-100 transition-colors">
+                                <FileText className="h-5 w-5" />
+                              </div>
+                              <div className="text-left">
+                                <p className="text-[11px] font-black uppercase tracking-tight text-rose-400">PDF 첨부파일</p>
+                                <p className="text-sm font-bold text-slate-800">{selectedVendor.noticeFileName || '공지사항 PDF 보기'}</p>
+                              </div>
+                              <ExternalLink className="h-4 w-4 ml-4 text-slate-300" />
+                            </a>
+                          ) : (
+                            <a 
+                              href={selectedVendor.noticeFileUrl} 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-2 text-xs font-bold text-amber-700 hover:underline"
+                            >
+                              <LinkIcon className="h-3 w-3" />
+                              {selectedVendor.noticeFileName || '첨부 파일 다운로드'}
+                            </a>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </motion.div>
                 </div>
@@ -3178,6 +3303,45 @@ export default function App() {
                 <div className="space-y-2 col-span-full">
                   <label className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-500">업체 공지사항 (업체방 상단 표시)</label>
                   <textarea name="notice" rows={3} placeholder="업체에게 전달할 공지사항을 입력하세요. 업체방(단가표) 상단에 강조되어 표시됩니다." className="w-full rounded-2xl border-2 border-amber-100 bg-amber-50/30 p-4 font-bold text-slate-800 focus:border-amber-500 focus:bg-white focus:outline-none transition-all"></textarea>
+                  
+                  <div className="mt-2">
+                    <input 
+                      type="file" 
+                      accept=".pdf,image/*" 
+                      onChange={(e) => setNoticeFile(e.target.files?.[0] || null)}
+                      className="hidden" 
+                      id="notice-file-upload"
+                    />
+                    <label 
+                      htmlFor="notice-file-upload" 
+                      className={`flex items-center gap-3 w-full p-4 border-2 border-dashed rounded-2xl transition-all cursor-pointer ${
+                        noticeFile ? 'border-amber-400 bg-amber-50' : 'border-slate-100 bg-slate-50 hover:border-amber-300 hover:bg-white'
+                      }`}
+                    >
+                      <div className={`p-2 rounded-xl ${noticeFile ? 'bg-amber-500 text-white' : 'bg-white text-slate-400 shadow-sm'}`}>
+                        {noticeFile ? <FileText className="h-4 w-4" /> : <Upload className="h-4 w-4" />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className={`text-xs font-bold truncate ${noticeFile ? 'text-amber-700' : 'text-slate-500'}`}>
+                          {noticeFile ? noticeFile.name : '공지 첨부 파일 (사진 또는 PDF)'}
+                        </p>
+                        <p className="text-[10px] text-slate-400">PDF, JPG, PNG 지원 (최대 10MB)</p>
+                      </div>
+                      {noticeFile && (
+                        <button 
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setNoticeFile(null);
+                          }}
+                          className="p-1 hover:bg-amber-200 rounded-lg text-amber-600 transition-colors"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      )}
+                    </label>
+                  </div>
                 </div>
                 <div className="space-y-2">
                   <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">대표자 성함</label>
@@ -3211,7 +3375,22 @@ export default function App() {
                     />
                     <label 
                       htmlFor="price-table-upload" 
-                      className="flex flex-col items-center justify-center gap-2 w-full p-8 border-2 border-dashed border-slate-200 rounded-2xl bg-slate-50 hover:bg-white hover:border-indigo-400 transition-all cursor-pointer group"
+                      className={`flex flex-col items-center justify-center gap-2 w-full p-8 border-2 border-dashed rounded-2xl transition-all cursor-pointer group ${
+                        isDragging ? 'border-indigo-500 bg-indigo-50 scale-[1.01]' : 'border-slate-200 bg-slate-50 hover:bg-white hover:border-indigo-400'
+                      }`}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        setIsDragging(true);
+                      }}
+                      onDragLeave={() => setIsDragging(false)}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        setIsDragging(false);
+                        const file = e.dataTransfer.files?.[0];
+                        if (file) {
+                          setPriceTableFile(file);
+                        }
+                      }}
                     >
                       {priceTableFile ? (
                         <>
@@ -3355,7 +3534,8 @@ export default function App() {
                   <div className="p-2 bg-white rounded-lg shadow-sm">
                     {selectedVendor.priceTableFileType === 'excel' ? <Table className="h-5 w-5 text-emerald-500" /> : 
                      selectedVendor.priceTableFileType === 'pdf' ? <FileText className="h-5 w-5 text-rose-500" /> : 
-                     <Building2 className="h-5 w-5 text-indigo-500" />}
+                     selectedVendor.priceTableFileType === 'image' ? <ImageIcon className="h-5 w-5 text-indigo-500" /> :
+                     <Building2 className="h-5 w-5 text-slate-400" />}
                   </div>
                   <div>
                     <p className="text-sm font-bold text-slate-800">{selectedVendor.priceTableFileName || '단가표 파일'}</p>
@@ -3683,13 +3863,66 @@ export default function App() {
                 <div className="space-y-2 col-span-full">
                   <label className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-500">업체 공지사항 (업체방 상단 표시)</label>
                   <textarea name="notice" defaultValue={selectedVendor.notice} rows={3} placeholder="업체에게 전달할 공지사항을 입력하세요. 업체방(단가표) 상단에 강조되어 표시됩니다." className="w-full rounded-2xl border-2 border-amber-100 bg-amber-50/30 p-4 font-bold text-slate-800 focus:border-amber-500 focus:bg-white focus:outline-none transition-all"></textarea>
+                  
+                  <div className="mt-2">
+                    <input 
+                      type="file" 
+                      accept=".pdf,image/*" 
+                      onChange={(e) => setNoticeFile(e.target.files?.[0] || null)}
+                      className="hidden" 
+                      id="notice-file-edit-upload"
+                    />
+                    <label 
+                      htmlFor="notice-file-edit-upload" 
+                      className={`flex items-center gap-3 w-full p-4 border-2 border-dashed rounded-2xl transition-all cursor-pointer ${
+                        noticeFile ? 'border-amber-400 bg-amber-50' : 'border-slate-100 bg-slate-50 hover:border-amber-300 hover:bg-white'
+                      }`}
+                    >
+                      <div className={`p-2 rounded-xl ${noticeFile ? 'bg-amber-500 text-white' : 'bg-white text-slate-400 shadow-sm'}`}>
+                        {noticeFile ? <FileText className="h-4 w-4" /> : <Upload className="h-4 w-4" />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        {noticeFile ? (
+                          <div className="flex items-center justify-between">
+                            <div>
+                               <p className="text-xs font-bold truncate text-amber-700">{noticeFile.name}</p>
+                               <p className="text-[10px] text-amber-500">새로운 파일로 교체됩니다.</p>
+                            </div>
+                          </div>
+                        ) : selectedVendor.noticeFileUrl ? (
+                          <div>
+                            <p className="text-xs font-bold truncate text-slate-700">현재 파일: {selectedVendor.noticeFileName || '공지 파일'}</p>
+                            <p className="text-[10px] text-slate-400">클릭하여 파일 교체</p>
+                          </div>
+                        ) : (
+                          <div>
+                            <p className="text-xs font-bold text-slate-500">공지 첨부 파일 (사진 또는 PDF)</p>
+                            <p className="text-[10px] text-slate-400">PDF, JPG, PNG 지원 (최대 10MB)</p>
+                          </div>
+                        )}
+                      </div>
+                      {noticeFile && (
+                        <button 
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setNoticeFile(null);
+                          }}
+                          className="p-1 hover:bg-amber-200 rounded-lg text-amber-600 transition-colors"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      )}
+                    </label>
+                  </div>
                 </div>
                 <div className="space-y-2">
                   <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">대표자명</label>
                   <input name="representative" defaultValue={selectedVendor.representative} className="w-full rounded-2xl border-2 border-slate-100 bg-slate-50 p-4 font-bold text-slate-800 focus:border-indigo-500 focus:bg-white focus:outline-none transition-all" />
                 </div>
                 <div className="space-y-2 col-span-full">
-                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">단가표 파일 (변경 시 선택)</label>
+                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">단가표 파일 (Excel, PDF, Image) *</label>
                   <div className="relative group/upload">
                     <input 
                       type="file" 
@@ -3700,7 +3933,22 @@ export default function App() {
                     />
                     <label 
                       htmlFor="price-table-edit-upload" 
-                      className="flex flex-col items-center justify-center gap-2 w-full p-8 border-2 border-dashed border-slate-200 rounded-2xl bg-slate-50 hover:bg-white hover:border-indigo-400 transition-all cursor-pointer group"
+                      className={`flex flex-col items-center justify-center gap-2 w-full p-8 border-2 border-dashed rounded-2xl transition-all cursor-pointer group ${
+                        isDragging ? 'border-indigo-500 bg-indigo-50 scale-[1.01]' : 'border-slate-200 bg-slate-50 hover:bg-white hover:border-indigo-400'
+                      }`}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        setIsDragging(true);
+                      }}
+                      onDragLeave={() => setIsDragging(false)}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        setIsDragging(false);
+                        const file = e.dataTransfer.files?.[0];
+                        if (file) {
+                          setPriceTableFile(file);
+                        }
+                      }}
                     >
                       {priceTableFile ? (
                         <>
@@ -3721,6 +3969,7 @@ export default function App() {
                         <>
                           <Upload className="h-8 w-8 text-slate-300 group-hover:text-indigo-400 transition-colors" />
                           <span className="text-sm font-bold text-slate-500 group-hover:text-indigo-600 transition-colors">파일 선택 또는 드래그</span>
+                          <span className="text-[10px] text-slate-400 uppercase tracking-widest font-black">XLSX, PDF, JPG/PNG 지원</span>
                         </>
                       )}
                     </label>

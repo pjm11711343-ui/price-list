@@ -50,6 +50,9 @@
         "notes": { "type": "string" },
         "roundingMethod": { "type": "string" },
         "notice": { "type": "string" },
+        "noticeFileUrl": { "type": "string" },
+        "noticeFileType": { "type": "string" },
+        "noticeFileName": { "type": "string" },
         "noticeUpdatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["name"]

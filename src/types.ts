@@ -22,6 +22,9 @@ export interface Vendor {
   createdAt?: any;
   updatedAt?: any;
   notice?: string;
+  noticeFileUrl?: string;
+  noticeFileType?: 'image' | 'pdf' | 'unknown';
+  noticeFileName?: string;
   noticeUpdatedAt?: any;
 }
 
