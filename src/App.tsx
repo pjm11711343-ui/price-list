@@ -481,10 +481,17 @@ export default function App() {
   };
 
   const toggleSelectAll = () => {
-    if (selectedPriceIds.size === priceItems.length && priceItems.length > 0) {
-      setSelectedPriceIds(new Set());
+    const visibleIds = displayedPriceItems.map(item => item.id);
+    const allVisibleSelected = visibleIds.length > 0 && visibleIds.every(id => selectedPriceIds.has(id));
+    
+    if (allVisibleSelected) {
+      const next = new Set(selectedPriceIds);
+      visibleIds.forEach(id => next.delete(id));
+      setSelectedPriceIds(next);
     } else {
-      setSelectedPriceIds(new Set(priceItems.map(item => item.id)));
+      const next = new Set(selectedPriceIds);
+      visibleIds.forEach(id => next.add(id));
+      setSelectedPriceIds(next);
     }
   };
 
@@ -632,6 +639,68 @@ export default function App() {
     } catch (error) {
       console.error("Error bulk updating categories:", error);
       alert('카테고리 변경 중 오류가 발생했습니다.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleBulkRoundingChange = async (newUseRounding: boolean) => {
+    if (!selectedVendor || selectedPriceIds.size === 0) return;
+    
+    try {
+      setLoading(true);
+      const targets = Array.from(selectedPriceIds)
+        .map(id => priceItems.find(p => p.id === id))
+        .filter(Boolean) as PriceItem[];
+      
+      const chunkSize = 400;
+      for (let i = 0; i < targets.length; i += chunkSize) {
+        const chunk = targets.slice(i, i + chunkSize);
+        const batch = writeBatch(db);
+        const vId = selectedVendor.id;
+        
+        for (const item of chunk) {
+          const newUnitPrice = calculatePrice(item.costPrice, item.negoRate, newUseRounding, item.negoType || 'percent', item.weight);
+          
+          if (isDeepLinkMode && !isAdminMode) {
+            if (!item.hasPendingUpdate) {
+              const pendingRef = doc(collection(db, 'pending_updates'));
+              batch.set(pendingRef, {
+                vendorId: selectedVendor.id,
+                priceItemId: item.id,
+                itemName: item.itemName,
+                spec: item.spec || '',
+                oldData: { useRounding: item.useRounding ?? true, unitPrice: item.unitPrice },
+                newData: { useRounding: newUseRounding, unitPrice: newUnitPrice },
+                status: 'pending',
+                requestedBy: '업체(링크)',
+                requestedAt: serverTimestamp()
+              });
+              
+              batch.update(doc(db, 'vendors', vId, 'prices', item.id), {
+                hasPendingUpdate: true
+              });
+            }
+          } else {
+            batch.update(doc(db, 'vendors', vId, 'prices', item.id), {
+              useRounding: newUseRounding,
+              unitPrice: newUnitPrice,
+              updatedAt: serverTimestamp()
+            });
+          }
+        }
+        await batch.commit();
+      }
+      
+      if (isDeepLinkMode && !isAdminMode) {
+        alert(`선택한 ${targets.length}개 품목의 반올림 요청이 전송되었습니다. 관리자 승인 후 반영됩니다.`);
+      } else {
+        alert(`선택한 ${targets.length}개 품목의 10원 단위 반올림 설정이 '${newUseRounding ? "적용" : "미적용"}' 상태로 변경되었습니다.`);
+      }
+      setSelectedPriceIds(new Set());
+    } catch (error) {
+      console.error("Error bulk updating rounding:", error);
+      alert('10원 단위 반올림 설정 변경 중 오류가 발생했습니다.');
     } finally {
       setLoading(false);
     }
@@ -1494,6 +1563,15 @@ export default function App() {
     
     return items;
   }, [priceItems, priceSortField, priceSortOrder, pendingUpdates]);
+
+  const displayedPriceItems = useMemo(() => {
+    return sortedPriceItems.filter(item => {
+      const matchesSearch = item.itemName.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                           (item.itemCode && item.itemCode.toLowerCase().includes(searchTerm.toLowerCase()));
+      const matchesCategory = activeCategory === '전체' || item.category === activeCategory;
+      return matchesSearch && matchesCategory;
+    });
+  }, [sortedPriceItems, searchTerm, activeCategory]);
 
   const handlePriceSort = (field: 'itemName' | 'spec' | 'order') => {
     if (priceSortField === field) {
@@ -2701,6 +2779,27 @@ export default function App() {
                          ))}
                        </select>
                     </div>
+                    <div className="h-3 w-[1px] bg-slate-200" />
+                    <div className="flex items-center gap-2">
+                       <span className="text-[10px] font-medium text-slate-500 whitespace-nowrap">반올림 일괄설정</span>
+                       <select 
+                         onChange={async (e) => {
+                           const val = e.target.value;
+                           if (val && selectedPriceIds.size > 0) {
+                             const shouldRound = val === 'round';
+                             if (confirm(`${selectedPriceIds.size}개 품목의 단가 10원 단위 반올림을 '${shouldRound ? "적용" : "미적용"}'(으)로 일괄 변경하시겠습니까?`)) {
+                               await handleBulkRoundingChange(shouldRound);
+                             }
+                             e.target.value = "";
+                           }
+                         }}
+                         className="h-7 bg-slate-50 border border-slate-200 rounded px-2 text-[10px] font-bold text-slate-600 outline-none focus:ring-1 focus:ring-indigo-500 transition-all hover:bg-slate-100 cursor-pointer"
+                       >
+                         <option value="">반올림 선택</option>
+                         <option value="round">10원 단위 반올림 적용 (5UP 4DOWN)</option>
+                         <option value="none">단가 그대로 적용 (절사/원단위)</option>
+                       </select>
+                    </div>
                     <button 
                       onClick={async () => {
                         if (selectedPriceIds.size === 0) return;
@@ -3006,7 +3105,7 @@ export default function App() {
                       <th className="w-10 px-4 text-center relative border-r border-slate-50">
                         <input 
                           type="checkbox" 
-                          checked={selectedPriceIds.size === priceItems.length && priceItems.length > 0}
+                          checked={displayedPriceItems.length > 0 && displayedPriceItems.every(i => selectedPriceIds.has(i.id))}
                           onChange={toggleSelectAll}
                           className="w-3.5 h-3.5 rounded border-slate-300 text-indigo-600 ring-offset-0 focus:ring-0 cursor-pointer"
                         />
@@ -3126,12 +3225,7 @@ export default function App() {
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-slate-100 text-[12px]">
-                    {sortedPriceItems.filter(item => {
-                      const matchesSearch = item.itemName.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                                           (item.itemCode && item.itemCode.toLowerCase().includes(searchTerm.toLowerCase()));
-                      const matchesCategory = activeCategory === '전체' || item.category === activeCategory;
-                      return matchesSearch && matchesCategory;
-                    }).map((item, idx) => {
+                    {displayedPriceItems.map((item, idx) => {
                       const discount = item.negoType === 'sts_pipe' ? 0 : item.costPrice * (item.negoRate / 100);
                       return (
                         <tr 
