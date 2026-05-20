@@ -1218,13 +1218,15 @@ export default function App() {
         const existingItemsSnap = await getDocs(collection(db, "vendors", selectedVendor.id, "prices"));
         const existingItemsMap = new Map();
         existingItemsSnap.docs.forEach(doc => {
-          const d = doc.data();
+          const d = doc.data() as PriceItem;
           const key = `${d.itemName}_${d.spec || ''}_${d.category || ''}`;
-          existingItemsMap.set(key, doc.id);
+          existingItemsMap.set(key, { id: doc.id, item: d });
         });
 
         let createdCount = 0;
         let updatedCount = 0;
+        let pendingCount = 0;
+        let skippedPendingCount = 0;
         
         // Chunk processing for batches
         const chunks = [];
@@ -1277,12 +1279,71 @@ export default function App() {
             };
 
             const key = `${itemName}_${spec}_${category}`;
-            const existingId = existingItemsMap.get(key);
+            const existingEntry = existingItemsMap.get(key);
 
-            if (existingId) {
-              const itemRef = doc(db, "vendors", selectedVendor.id, "prices", existingId);
-              batch.update(itemRef, itemData);
-              updatedCount++;
+            if (existingEntry) {
+              const existingId = existingEntry.id;
+              const existingItem = existingEntry.item;
+
+              if (isDeepLinkMode && !isAdminMode) {
+                const hasChanged = 
+                  Number(existingItem.costPrice || 0) !== costPrice ||
+                  Number(existingItem.negoRate || 0) !== negoRate ||
+                  (existingItem.negoType || 'percent') !== negoType ||
+                  Number(existingItem.weight || 0) !== weight ||
+                  Number(existingItem.unitPrice || 0) !== unitPrice ||
+                  (existingItem.remarks || '') !== (itemData.remarks || '') ||
+                  (existingItem.maker || '') !== (itemData.maker || '') ||
+                  (existingItem.category || '') !== (itemData.category || '') ||
+                  (existingItem.useRounding !== itemRounding);
+
+                if (hasChanged) {
+                  if (existingItem.hasPendingUpdate) {
+                    skippedPendingCount++;
+                  } else {
+                    const pendingRef = doc(collection(db, 'pending_updates'));
+                    batch.set(pendingRef, {
+                      vendorId: selectedVendor.id,
+                      priceItemId: existingId,
+                      itemName: existingItem.itemName,
+                      spec: existingItem.spec || '',
+                      oldData: { 
+                        costPrice: existingItem.costPrice || 0, 
+                        negoRate: existingItem.negoRate || 0, 
+                        negoType: existingItem.negoType || 'percent', 
+                        weight: existingItem.weight || 0,
+                        unitPrice: existingItem.unitPrice || 0,
+                        remarks: existingItem.remarks || '',
+                        maker: existingItem.maker || '',
+                        category: existingItem.category || '',
+                        useRounding: existingItem.useRounding ?? true
+                      },
+                      newData: {
+                        costPrice,
+                        negoRate,
+                        negoType,
+                        weight,
+                        unitPrice,
+                        remarks: itemData.remarks,
+                        maker: itemData.maker,
+                        category,
+                        useRounding: itemRounding,
+                      },
+                      status: 'pending',
+                      requestedBy: '업체(링크)',
+                      requestedAt: serverTimestamp()
+                    });
+                    
+                    const itemRef = doc(db, "vendors", selectedVendor.id, "prices", existingId);
+                    batch.update(itemRef, { hasPendingUpdate: true });
+                    pendingCount++;
+                  }
+                }
+              } else {
+                const itemRef = doc(db, "vendors", selectedVendor.id, "prices", existingId);
+                batch.update(itemRef, itemData);
+                updatedCount++;
+              }
             } else {
               const itemRef = doc(collection(db, "vendors", selectedVendor.id, "prices"));
               batch.set(itemRef, { ...itemData, order: existingItemsMap.size + createdCount, createdAt: serverTimestamp() });
@@ -1292,7 +1353,18 @@ export default function App() {
           await batch.commit();
         }
 
-        alert(`처리 완료: ${createdCount}개 신규 등록, ${updatedCount}개 정보 업데이트`);
+        let alertMsg = `처리 완료: ${createdCount}개 신규 등록`;
+        if (isDeepLinkMode && !isAdminMode) {
+          if (pendingCount > 0) {
+            alertMsg += `, ${pendingCount}개 정보 수정 승인 요청(대기)`;
+          }
+          if (skippedPendingCount > 0) {
+            alertMsg += ` (승인 대기 중 품목 ${skippedPendingCount}개 제외)`;
+          }
+        } else {
+          alertMsg += `, ${updatedCount}개 정보 업데이트`;
+        }
+        alert(alertMsg);
         setBulkItemFile(null);
       } catch (error) {
         console.error("Bulk item upload error:", error);
