@@ -497,6 +497,10 @@ export default function App() {
   };
 
   const handleBulkDelete = async () => {
+    if (isGuestMode) {
+      alert('게스트 모드에서는 수정할 수 없습니다.');
+      return;
+    }
     if (!selectedVendor || selectedPriceIds.size === 0) return;
     if (!confirm(`${selectedPriceIds.size}개의 항목을 삭제하시겠습니까?`)) return;
 
@@ -527,6 +531,10 @@ export default function App() {
   };
 
   const handleBulkPriceAdjust = async () => {
+    if (isGuestMode) {
+      alert('게스트 모드에서는 수정할 수 없습니다.');
+      return;
+    }
     if (!selectedVendor || selectedPriceIds.size === 0) return;
     
     try {
@@ -617,6 +625,10 @@ export default function App() {
   };
 
   const handleBulkCategoryUpdate = async (newCategory: string) => {
+    if (isGuestMode) {
+      alert('게스트 모드에서는 수정할 수 없습니다.');
+      return;
+    }
     if (!selectedVendor || selectedPriceIds.size === 0 || !newCategory) return;
     
     try {
@@ -646,6 +658,10 @@ export default function App() {
   };
 
   const handleBulkRoundingChange = async (newUseRounding: boolean) => {
+    if (isGuestMode) {
+      alert('게스트 모드에서는 수정할 수 없습니다.');
+      return;
+    }
     if (!selectedVendor || selectedPriceIds.size === 0) return;
     
     try {
@@ -709,6 +725,10 @@ export default function App() {
 
   const handleInlinePriceUpdate = async (id: string, field: string, value: any) => {
     if (!selectedVendor) return;
+    if (isGuestMode) {
+      alert('게스트 모드에서는 수정할 수 없습니다.');
+      return;
+    }
     
     try {
       const item = priceItems.find(p => p.id === id);
@@ -3253,7 +3273,8 @@ export default function App() {
                             <select 
                               value={item.category || ''} 
                               onChange={(e) => handleInlinePriceUpdate(item.id, 'category', e.target.value)}
-                              className="w-full bg-transparent border-none text-[10px] font-bold text-slate-500 outline-none focus:ring-0 appearance-none cursor-pointer hover:text-indigo-600 transition-colors"
+                              disabled={!canManageItems}
+                              className="w-full bg-transparent border-none text-[10px] font-bold text-slate-500 outline-none focus:ring-0 appearance-none cursor-pointer hover:text-indigo-600 transition-colors disabled:pointer-events-none disabled:hover:text-slate-500"
                             >
                               <option value="">미지정</option>
                               {categories.filter(c => c !== '전체').map(cat => (
@@ -3280,7 +3301,8 @@ export default function App() {
                                 type="checkbox"
                                 checked={item.useRounding !== undefined ? item.useRounding : (selectedVendor?.roundingMethod !== 'none')}
                                 onChange={(e) => handleInlinePriceUpdate(item.id, 'useRounding', e.target.checked)}
-                                className="w-3 h-3 rounded border-slate-300 text-indigo-400 focus:ring-0 cursor-pointer"
+                                disabled={!canManageItems}
+                                className="w-3 h-3 rounded border-slate-300 text-indigo-400 focus:ring-0 cursor-pointer disabled:pointer-events-none disabled:opacity-50"
                                 title="10원 단위 반올림 적용 여부"
                               />
                               <span>{getRoundedValue(item.unitPrice, item.useRounding).toLocaleString()}</span>
@@ -3292,7 +3314,8 @@ export default function App() {
                                   type="number"
                                   value={item.negoRate}
                                   onChange={(e) => handleInlinePriceUpdate(item.id, 'negoRate', Number(e.target.value))}
-                                  className={`w-12 bg-transparent border-none text-center p-0 outline-none focus:ring-0 appearance-none font-bold text-xs ${item.negoType === 'sts_pipe' ? 'text-indigo-800' : ''}`}
+                                  disabled={!canManageItems}
+                                  className={`w-12 bg-transparent border-none text-center p-0 outline-none focus:ring-0 appearance-none font-bold text-xs ${item.negoType === 'sts_pipe' ? 'text-indigo-800' : ''} disabled:pointer-events-none`}
                                   placeholder={item.negoType === 'sts_pipe' ? "단가" : "%"}
                                 />
                                 <button 
@@ -3300,7 +3323,8 @@ export default function App() {
                                     const nextType = item.negoType === 'percent' ? 'sts_pipe' : 'percent';
                                     handleInlinePriceUpdate(item.id, 'negoType', nextType);
                                   }}
-                                  className="text-[10px] font-medium opacity-50 hover:opacity-100 hover:text-indigo-600 transition-all cursor-pointer bg-slate-100 px-1 rounded shrink-0"
+                                  disabled={!canManageItems}
+                                  className="text-[10px] font-medium opacity-50 hover:opacity-100 hover:text-indigo-600 transition-all cursor-pointer bg-slate-100 px-1 rounded shrink-0 disabled:pointer-events-none disabled:opacity-30"
                                   title="네고 방식 변경 (% <-> STS)"
                                 >
                                   {item.negoType === 'sts_pipe' ? 'STS' : '%'}
@@ -3318,7 +3342,8 @@ export default function App() {
                                   handleInlinePriceUpdate(item.id, 'weight', val === '' ? 0 : Number(val));
                                 }
                               }}
-                              className="w-16 bg-transparent border-none text-center p-0 outline-none focus:ring-0 rounded appearance-none font-medium text-[10px] opacity-40 hover:opacity-100"
+                              disabled={!canManageItems}
+                              className="w-16 bg-transparent border-none text-center p-0 outline-none focus:ring-0 rounded appearance-none font-medium text-[10px] opacity-40 hover:opacity-100 disabled:pointer-events-none disabled:opacity-30"
                               title="참조용 단중 데이터"
                             />
                           </td>
@@ -3333,7 +3358,8 @@ export default function App() {
                                   handleInlinePriceUpdate(item.id, 'costPrice', val === '' ? 0 : Number(val));
                                 }
                               }}
-                              className={`w-full bg-transparent border-none text-right p-0 outline-none focus:ring-0 appearance-none font-bold ${item.negoType === 'sts_pipe' ? 'text-indigo-600' : 'text-slate-600'}`}
+                              disabled={!canManageItems}
+                              className={`w-full bg-transparent border-none text-right p-0 outline-none focus:ring-0 appearance-none font-bold ${item.negoType === 'sts_pipe' ? 'text-indigo-600' : 'text-slate-600'} disabled:pointer-events-none`}
                             />
                           </td>
                           <td className="px-4 text-right font-mono font-bold text-emerald-600/80 bg-slate-50/10 text-xs">
