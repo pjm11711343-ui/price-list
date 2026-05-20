@@ -384,6 +384,7 @@ export default function App() {
     discountAmount: 120,
     unitPrice: 120,
     change: 100,
+    remarks: 180,
     lastUpdated: 150
   });
   const [resizing, setResizing] = useState<keyof typeof columnWidths | null>(null);
@@ -3099,7 +3100,7 @@ export default function App() {
                   )}
                 </AnimatePresence>
 
-                <table className="w-full border-collapse table-fixed min-w-[1200px]">
+                <table className="w-full border-collapse table-fixed min-w-[1500px]">
                   <thead className="sticky top-0 bg-white z-10 border-b border-slate-200">
                     <tr className="text-[10px] font-bold text-slate-400 uppercase tracking-tight h-8">
                       <th className="w-10 px-4 text-center relative border-r border-slate-50">
@@ -3209,6 +3210,13 @@ export default function App() {
                         메이커
                         <div 
                           onMouseDown={(e) => startResize(e, 'maker')}
+                          className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-indigo-400 transition-colors bg-transparent z-10"
+                        />
+                      </th>
+                      <th className="px-4 text-left font-semibold relative border-r border-slate-50 group/th" style={{ width: columnWidths.remarks }}>
+                        비고
+                        <div 
+                          onMouseDown={(e) => startResize(e, 'remarks')}
                           className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-indigo-400 transition-colors bg-transparent z-10"
                         />
                       </th>
@@ -3348,6 +3356,27 @@ export default function App() {
                              })()}
                           </td>
                           <td className="px-4 text-slate-500 font-medium truncate">{item.maker || '-'}</td>
+                          <td className="px-2">
+                            <input 
+                              type="text"
+                              key={`remarks-${item.id}-${item.remarks || ''}`}
+                              defaultValue={item.remarks || ''}
+                              onBlur={(e) => {
+                                if (e.target.value !== (item.remarks || '')) {
+                                  handleInlinePriceUpdate(item.id, 'remarks', e.target.value);
+                                }
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.currentTarget.blur();
+                                }
+                              }}
+                              className="w-full bg-transparent border-none text-left p-0 outline-none focus:ring-1 focus:ring-indigo-500/30 rounded px-1.5 appearance-none font-medium text-slate-500 text-xs hover:bg-slate-50/50 focus:bg-white truncate"
+                              placeholder="-"
+                              disabled={!canManageItems}
+                              title={item.remarks}
+                            />
+                          </td>
                           <td className="px-4 text-slate-400 text-[10px] tabular-nums truncate">
                             {item.updatedAt?.toDate ? item.updatedAt.toDate().toLocaleString('ko-KR', {
                               year: '2-digit',
