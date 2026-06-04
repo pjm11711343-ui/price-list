@@ -136,6 +136,94 @@ const Modal = ({ children, onClose, title, maxWidth = "max-w-2xl" }: { children:
   </motion.div>
 );
 
+const PriceTrendTooltip = ({ history }: { history: { price: number; date: any }[] }) => {
+  if (!history || history.length < 2) return null;
+
+  return (
+    <div className="bg-slate-900 text-white p-3 rounded-2xl shadow-2xl text-[10px] w-40 border border-slate-800 backdrop-blur-md bg-opacity-95">
+      <div className="font-black text-indigo-400 uppercase tracking-widest mb-2 border-b border-white/10 pb-2 flex items-center gap-2">
+        <History className="h-3 w-3" />
+        최근 단가 변동 이력
+      </div>
+      <div className="space-y-2">
+        {history.map((h, i) => (
+          <div key={i} className="flex items-center justify-between gap-3 group">
+             <span className="text-slate-400 font-bold">
+               {h.date?.toDate ? h.date.toDate().toLocaleDateString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : 
+                h.date instanceof Date ? h.date.toLocaleDateString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : 
+                typeof h.date === 'string' ? new Date(h.date).toLocaleDateString('ko-KR', { month: '2-digit', day: '2-digit' }) : '-'}
+             </span>
+             <span className="font-black text-indigo-300 group-first:text-emerald-400">₩{h.price.toLocaleString()}</span>
+          </div>
+        ))}
+      </div>
+      <div className="mt-2 pt-2 border-t border-white/5 flex flex-col gap-1">
+        {history.length >= 2 && (
+          <div className="flex items-center justify-between text-[9px] font-bold">
+            <span className="text-slate-500">최근 변동률</span>
+            {(() => {
+              const current = history[0].price;
+              const previous = history[1].price;
+              const diff = current - previous;
+              const percent = (previous !== 0) ? (diff / previous) * 100 : 0;
+              return (
+                <span className={percent > 0 ? 'text-rose-400' : percent < 0 ? 'text-indigo-400' : 'text-slate-400'}>
+                  {percent > 0 ? '▲' : percent < 0 ? '▼' : ''}{Math.abs(percent).toFixed(1)}%
+                </span>
+              );
+            })()}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const Sparkline = ({ history }: { history: { price: number; date: any }[] }) => {
+  if (!history || history.length < 2) return null;
+  
+  const prices = history.map(h => h.price).reverse(); // From old to new
+  const width = 36;
+  const height = 12;
+  const min = Math.min(...prices);
+  const max = Math.max(...prices);
+  const range = max - min || 1;
+  
+  const points = prices.map((val, i) => {
+    const x = (i / (prices.length - 1)) * width;
+    const y = height - ((val - min) / range) * (height - 2) - 1;
+    return `${x},${y}`;
+  }).join(' ');
+
+  const color = prices[prices.length - 1] > prices[0] ? '#F43F5E' : 
+                prices[prices.length - 1] < prices[0] ? '#6366F1' : '#94A3B8';
+
+  return (
+    <div className="flex items-center gap-1.5 px-1.5 py-0.5 rounded bg-slate-50 border border-slate-100/50 group cursor-help relative">
+      <svg width={width} height={height} className="overflow-visible">
+        <polyline
+          fill="none"
+          stroke={color}
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          points={points}
+        />
+        {/* Draw latest point dot */}
+        <circle 
+          cx={width} 
+          cy={height - ((prices[prices.length - 1] - min) / range) * (height - 2) - 1} 
+          r="1.5" 
+          fill={color} 
+        />
+      </svg>
+      <div className="hidden group-hover:block absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-[100]">
+        <PriceTrendTooltip history={history} />
+      </div>
+    </div>
+  );
+};
+
 export default function App() {
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [selectedVendor, setSelectedVendor] = useState<Vendor | null>(null);
@@ -188,6 +276,8 @@ export default function App() {
   const [adminPasswordInput, setAdminPasswordInput] = useState('');
   const [showAdminLogin, setShowAdminLogin] = useState(false);
   const [copySuccess, setCopySuccess] = useState(false);
+  const [pendingUpdates, setPendingUpdates] = useState<PendingPriceUpdate[]>([]);
+  const [isApprovalsModalOpen, setIsApprovalsModalOpen] = useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   // Fetch admin password from Firestore
@@ -355,11 +445,48 @@ export default function App() {
   const [usdToKrw, setUsdToKrw] = useState<number>(1350);
   const [lastRateUpdate, setLastRateUpdate] = useState<string>("");
   const [savingMatrixId, setSavingMatrixId] = useState<string | null>(null);
-  const [pendingUpdates, setPendingUpdates] = useState<PendingPriceUpdate[]>([]);
-  const [isApprovalsModalOpen, setIsApprovalsModalOpen] = useState(false);
 
   const [activeCategory, setActiveCategory] = useState('전체');
   const [selectedMatrixRow, setSelectedMatrixRow] = useState<any>(null);
+  const [showVarianceChart, setShowVarianceChart] = useState(false);
+
+  const categoryVarianceData = useMemo(() => {
+    const grouped: Record<string, { category: string; prices: number[] }> = {};
+    
+    allPrices.forEach(item => {
+      const key = `${item.itemName}_${item.spec || ''}`;
+      if (!grouped[key]) {
+        grouped[key] = { category: item.category || '기타', prices: [] };
+      }
+      grouped[key].prices.push(item.unitPrice);
+    });
+
+    const catStats: Record<string, { totalVariance: number; count: number }> = {};
+    Object.values(grouped).forEach(item => {
+      if (item.prices.length > 1) {
+        const min = Math.min(...item.prices);
+        const max = Math.max(...item.prices);
+        if (min > 0) {
+          const variance = ((max - min) / min) * 100;
+          if (!catStats[item.category] && item.category !== '전체') {
+            catStats[item.category] = { totalVariance: 0, count: 0 };
+          }
+          if (catStats[item.category]) {
+            catStats[item.category].totalVariance += variance;
+            catStats[item.category].count += 1;
+          }
+        }
+      }
+    });
+
+    return Object.entries(catStats)
+      .map(([category, data]) => ({
+        category,
+        avgVariance: Number((data.totalVariance / data.count).toFixed(1)),
+        itemCount: data.count
+      }))
+      .sort((a, b) => b.avgVariance - a.avgVariance);
+  }, [allPrices]);
 
   const chartData = useMemo(() => {
     if (!selectedMatrixRow) return [];
@@ -383,6 +510,7 @@ export default function App() {
     weight: 90,
     discountAmount: 120,
     unitPrice: 120,
+    trend: 70,
     change: 100,
     remarks: 180,
     lastUpdated: 150
@@ -606,6 +734,7 @@ export default function App() {
             batch.update(doc(db, 'vendors', selectedVendor.id, 'prices', item.id), {
               negoRate: newNegoRate,
               unitPrice: newUnitPrice,
+              priceHistory: getUpdatedPriceHistory(item, newUnitPrice),
               updatedAt: serverTimestamp()
             });
           });
@@ -702,6 +831,7 @@ export default function App() {
             batch.update(doc(db, 'vendors', vId, 'prices', item.id), {
               useRounding: newUseRounding,
               unitPrice: newUnitPrice,
+              priceHistory: getUpdatedPriceHistory(item, newUnitPrice),
               updatedAt: serverTimestamp()
             });
           }
@@ -805,8 +935,13 @@ export default function App() {
         
         alert('단가 변경 요청이 전송되었습니다. 관리자 승인 후 반영됩니다.');
       } else {
+        const finalUpdates = { ...updates };
+        if (updates.unitPrice !== undefined) {
+          finalUpdates.priceHistory = getUpdatedPriceHistory(item, updates.unitPrice);
+        }
+
         await updateDoc(doc(db, 'vendors', selectedVendor.id, 'prices', id), {
-          ...updates,
+          ...finalUpdates,
           updatedAt: serverTimestamp()
         });
       }
@@ -820,12 +955,21 @@ export default function App() {
     try {
       const batch = writeBatch(db);
       
-      // 1. Apply to price item
-      batch.update(doc(db, 'vendors', update.vendorId, 'prices', update.priceItemId), {
-        ...update.newData,
-        updatedAt: serverTimestamp(),
-        hasPendingUpdate: false
-      });
+      const item = priceItems.find(p => p.id === update.priceItemId);
+      if (item && update.newData.unitPrice !== undefined) {
+        batch.update(doc(db, 'vendors', update.vendorId, 'prices', update.priceItemId), {
+          ...update.newData,
+          priceHistory: getUpdatedPriceHistory(item, update.newData.unitPrice),
+          updatedAt: serverTimestamp(),
+          hasPendingUpdate: false
+        });
+      } else {
+        batch.update(doc(db, 'vendors', update.vendorId, 'prices', update.priceItemId), {
+          ...update.newData,
+          updatedAt: serverTimestamp(),
+          hasPendingUpdate: false
+        });
+      }
       
       // 2. Mark update as approved
       batch.update(doc(db, 'pending_updates', update.id), {
@@ -856,9 +1000,15 @@ export default function App() {
       for (const chunk of chunks) {
         const batch = writeBatch(db);
         chunk.forEach(update => {
+          const item = priceItems.find(p => p.id === update.priceItemId);
+          const history = (item && update.newData.unitPrice !== undefined) 
+            ? getUpdatedPriceHistory(item, update.newData.unitPrice)
+            : (item?.priceHistory || []);
+
           // 1. Apply to price item
           batch.update(doc(db, 'vendors', update.vendorId, 'prices', update.priceItemId), {
             ...update.newData,
+            priceHistory: history,
             updatedAt: serverTimestamp(),
             hasPendingUpdate: false
           });
@@ -1009,6 +1159,18 @@ export default function App() {
       return Math.round(val / 10) * 10;
     }
     return Math.round(val);
+  };
+
+  const getUpdatedPriceHistory = (item: PriceItem, newPrice: number) => {
+    if (Math.round(item.unitPrice) === Math.round(newPrice)) return item.priceHistory || [];
+    
+    const newEntry = {
+      price: Math.round(newPrice),
+      date: new Date().toISOString()
+    };
+    
+    const history = item.priceHistory || [];
+    return [newEntry, ...history].slice(0, 3);
   };
 
   // Fetch Exchange Rate
@@ -1431,7 +1593,11 @@ export default function App() {
                 }
               } else {
                 const itemRef = doc(db, "vendors", selectedVendor.id, "prices", existingId);
-                batch.update(itemRef, itemData);
+                const finalItemData = { ...itemData };
+                if (existingItem && itemData.unitPrice !== undefined) {
+                   finalItemData.priceHistory = getUpdatedPriceHistory(existingItem, itemData.unitPrice);
+                }
+                batch.update(itemRef, finalItemData);
                 updatedCount++;
               }
             } else {
@@ -1968,9 +2134,15 @@ export default function App() {
         alert('상세 수정 요청이 전송되었습니다. 관리자 승인 후 반영됩니다.');
         setEditingPriceId(null);
       } else {
+        const item = priceItems.find(i => i.id === itemId);
+        const finalUpdates = { ...updates };
+        if (finalUnitPrice !== undefined && item) {
+          finalUpdates.unitPrice = finalUnitPrice;
+          finalUpdates.priceHistory = getUpdatedPriceHistory(item, finalUnitPrice);
+        }
+        
         await updateDoc(doc(db, 'vendors', selectedVendor.id, 'prices', itemId), {
-          ...updates,
-          ...(finalUnitPrice !== undefined ? { unitPrice: finalUnitPrice } : {}),
+          ...finalUpdates,
           updatedAt: serverTimestamp()
         });
         setEditingPriceId(null);
@@ -2416,6 +2588,17 @@ export default function App() {
                          <p className="text-[11px] text-slate-400 font-medium tracking-tight mt-1">업체별 동일 품명/규격 상품의 단가를 한눈에 비교합니다.</p>
                        </div>
                        <div className="flex items-center gap-2">
+                          <button 
+                            onClick={() => setShowVarianceChart(!showVarianceChart)}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all border ${
+                              showVarianceChart 
+                              ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg' 
+                              : 'bg-white border-slate-200 text-slate-500 hover:border-indigo-400 hover:text-indigo-600 shadow-sm'
+                            }`}
+                          >
+                            <BarChart3 className="h-3 w-3" />
+                            단가 편차 분석
+                          </button>
                           <span className="text-[10px] font-bold text-slate-400 bg-slate-50 px-2 py-1 rounded border border-slate-100">
                              총 {matrixData.length}개 품목</span>{matrixVendorIds.length > 0 && <div className="flex items-center gap-2 ml-3"><button onClick={() => { setMatrixVendorIds([]); }} className="text-[10px] font-bold text-slate-400 hover:text-red-500 bg-white px-2 py-0.5 rounded border border-slate-100 cursor-pointer">선택 해제({matrixVendorIds.length})</button></div>}<span>
                           </span>
@@ -2439,6 +2622,75 @@ export default function App() {
                      </div>
                    </div>
                 </header>
+                
+                {showVarianceChart && categoryVarianceData.length > 0 && (
+                   <motion.div 
+                     initial={{ height: 0, opacity: 0 }}
+                     animate={{ height: 'auto', opacity: 1 }}
+                     className="px-8 py-6 bg-slate-50 border-b border-slate-100 overflow-hidden shrink-0"
+                   >
+                     <div className="flex flex-col gap-4">
+                        <div className="flex items-center justify-between">
+                           <div>
+                              <h3 className="text-sm font-black text-slate-800 flex items-center gap-2">
+                                 <BarChart3 className="h-4 w-4 text-indigo-600" />
+                                 카테고리별 단가 편차 분석 (평균 편차 %)
+                              </h3>
+                              <p className="text-[10px] text-slate-400 font-bold mt-0.5">업체 간 단가 차이가 큰 카테고리를 시각화합니다. (최저가 대비 최고가 비율 평균)</p>
+                           </div>
+                           <div className="text-[10px] font-black text-slate-400 bg-white px-2 py-1 rounded border border-slate-200 shadow-sm">
+                             분석 대상: {categoryVarianceData.length}개 카테고리
+                           </div>
+                        </div>
+                        
+                        <div className="h-64 w-full bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
+                           <ResponsiveContainer width="100%" height="100%">
+                              <BarChart 
+                                data={categoryVarianceData} 
+                                layout="vertical" 
+                                margin={{ left: 20, right: 60, top: 10, bottom: 10 }}
+                              >
+                                 <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#EEF2F6" />
+                                 <XAxis type="number" hide />
+                                 <YAxis 
+                                   dataKey="category" 
+                                   type="category" 
+                                   axisLine={false} 
+                                   tickLine={false} 
+                                   tick={{ fontSize: 11, fontWeight: 700, fill: '#64748B' }}
+                                   width={100}
+                                 />
+                                 <RechartsTooltip 
+                                   cursor={{ fill: '#F8FAFC' }}
+                                   content={({ active, payload }) => {
+                                     if (active && payload && payload.length) {
+                                       const data = payload[0].payload;
+                                       return (
+                                         <div className="bg-slate-900 text-white p-3 rounded-xl shadow-xl border border-slate-800">
+                                           <div className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1">{data.category}</div>
+                                           <div className="text-sm font-black mb-1">평균 편차: {data.avgVariance}%</div>
+                                           <div className="text-[10px] text-slate-400 font-bold">비교 품목 수: {data.itemCount}개</div>
+                                         </div>
+                                       );
+                                     }
+                                     return null;
+                                   }}
+                                 />
+                                 <Bar dataKey="avgVariance" radius={[0, 4, 4, 0]} barSize={24}>
+                                   {categoryVarianceData.map((entry, index) => (
+                                     <Cell 
+                                       key={`cell-${index}`} 
+                                       fill={entry.avgVariance > 30 ? '#F43F5E' : entry.avgVariance > 15 ? '#F59E0B' : '#6366F1'} 
+                                       fillOpacity={0.8}
+                                     />
+                                   ))}
+                                 </Bar>
+                              </BarChart>
+                           </ResponsiveContainer>
+                        </div>
+                     </div>
+                   </motion.div>
+                )}
                 
                 <div className="flex-1 overflow-auto p-6 bg-slate-50/30">
                    {isMatrixLoading ? (
@@ -3219,6 +3471,13 @@ export default function App() {
                           className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-indigo-400 transition-colors bg-transparent z-10"
                         />
                       </th>
+                      <th className="px-4 text-center font-semibold bg-slate-50/80 relative border-r border-slate-50 group/th" style={{ width: columnWidths.trend }}>
+                        추세
+                        <div 
+                          onMouseDown={(e) => startResize(e, 'trend')}
+                          className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-indigo-400 transition-colors bg-transparent z-10"
+                        />
+                      </th>
                       <th className="px-4 text-right font-semibold relative border-r border-slate-50 group/th" style={{ width: columnWidths.change }}>
                         변동
                         <div 
@@ -3364,6 +3623,11 @@ export default function App() {
                           </td>
                           <td className="px-4 text-right font-mono font-bold text-emerald-600/80 bg-slate-50/10 text-xs">
                             {item.negoType === 'sts_pipe' ? '-' : `▼${getRoundedValue(discount, item.useRounding).toLocaleString()}`}
+                          </td>
+                          <td className="px-4 text-center bg-slate-50/10">
+                            <div className="flex justify-center">
+                              <Sparkline history={item.priceHistory || []} />
+                            </div>
                           </td>
                           <td className="px-4 text-right">
                              {(() => {

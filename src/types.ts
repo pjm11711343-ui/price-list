@@ -57,6 +57,7 @@ export interface PriceItem {
   order?: number;
   useRounding?: boolean;
   hasPendingUpdate?: boolean; // 승인 대기 중 여부
+  priceHistory?: { price: number; date: any }[]; // 최근 3개 가격 변동 이력
   updatedAt?: any;
 }
 
