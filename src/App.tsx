@@ -381,15 +381,30 @@ export default function App() {
   const [showOnlySelectedVendors, setShowOnlySelectedVendors] = useState(false);
 
   // Filter vendors for matrix based on selection, preserving click order
+  const vendorsWithData = useMemo(() => {
+    if (viewMode !== 'matrix' || allPrices.length === 0) return new Set<string>();
+    
+    // Determine which vendors actually have data in the current filtered set (search + category)
+    return new Set(allPrices.filter(item => {
+      const matchesSearch = searchTerm === '' || 
+        item.itemName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (item.spec && item.spec.toLowerCase().includes(searchTerm.toLowerCase()));
+      const matchesCategory = matrixCategory === '전체' || item.category === matrixCategory;
+      return matchesSearch && matchesCategory;
+    }).map(i => i.vendorId));
+  }, [allPrices, searchTerm, matrixCategory, viewMode]);
+
   const filteredVendors = useMemo(() => {
+    let baseList = vendors;
     if (matrixVendorIds.length > 0) {
-      // Map based on matrixVendorIds order
-      return matrixVendorIds
+      baseList = matrixVendorIds
         .map(id => vendors.find(v => v.id === id))
         .filter((v): v is Vendor => !!v);
     }
-    return vendors;
-  }, [vendors, matrixVendorIds]);
+    
+    // Only return vendors that actually have data in the system that matches filters
+    return baseList.filter(v => vendorsWithData.has(v.id));
+  }, [vendors, matrixVendorIds, vendorsWithData]);
 
   // Matrix Processing: Group items by Name + Spec
   const matrixData = useMemo(() => {
@@ -2247,6 +2262,13 @@ export default function App() {
     reader.readAsBinaryString(file);
   };
 
+  const sidebarVendors = useMemo(() => {
+    if (viewMode === 'matrix') {
+      return sortedVendors.filter(v => vendorsWithData.has(v.id));
+    }
+    return sortedVendors;
+  }, [sortedVendors, viewMode, vendorsWithData]);
+
   if (loading) {
     return (
       <div className="flex h-screen w-full flex-col items-center justify-center bg-white gap-4">
@@ -2386,7 +2408,7 @@ export default function App() {
                 <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
                   거래처
                   <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-full font-medium">
-                    {sortedVendors.length}
+                    {sidebarVendors.length}
                   </span>
                 </h2>
                 <div className="flex items-center gap-1">
@@ -2448,7 +2470,7 @@ export default function App() {
               {vendorSortMode === 'manual' && !vendorSearchTerm && isAdminMode ? (
                 <Reorder.Group 
                   axis="y" 
-                  values={sortedVendors} 
+                  values={sidebarVendors} 
                   onReorder={async (newOrder) => {
                     // Update order in Firestore
                     const batch = writeBatch(db);
@@ -2464,7 +2486,7 @@ export default function App() {
                   }}
                   className="space-y-0.5"
                 >
-                  {sortedVendors.map((vendor, index) => (
+                  {sidebarVendors.map((vendor, index) => (
                     <Reorder.Item
                       key={`reorder-${vendor.id}`}
                       value={vendor}
@@ -2522,7 +2544,7 @@ export default function App() {
                   ))}
                 </Reorder.Group>
               ) : (
-                sortedVendors.map((vendor, index) => (
+                sidebarVendors.map((vendor, index) => (
                   <div
                     key={`vendor-list-${vendor.id}`}
                     id={`vendor-btn-${vendor.id}`}
