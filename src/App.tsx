@@ -34,7 +34,9 @@ import {
   ArrowLeftRight,
   GripVertical,
   BarChart3,
-  Users
+  Users,
+  AlertTriangle,
+  Target
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -525,6 +527,7 @@ export default function App() {
     weight: 90,
     discountAmount: 120,
     unitPrice: 120,
+    targetPrice: 100,
     trend: 70,
     change: 100,
     remarks: 180,
@@ -1514,6 +1517,7 @@ export default function App() {
             }
 
             const weight = Number(row['단중'] || row['Weight'] || 0);
+            const targetPrice = row['목표단가'] || row['Target Price'] ? Number(String(row['목표단가'] || row['Target Price']).replace(/[^0-9.]/g, '')) : undefined;
 
             const itemRounding = row['반올림여부'] !== undefined ? 
                                (row['반올림여부'] === 'Y' || row['반올림여부'] === true) : 
@@ -1539,6 +1543,7 @@ export default function App() {
               negoType,
               weight,
               unitPrice,
+              targetPrice,
               remarks: String(row['비고'] || row['Remarks'] || ''),
               maker: String(row['메이커'] || row['제조사'] || row['Maker'] || ''),
               useRounding: itemRounding,
@@ -2055,6 +2060,7 @@ export default function App() {
     const negoRate = Number(String(formData.get('negoRate') || '0').replace(/,/g, ''));
     const negoType = (formData.get('negoType') as 'percent' | 'sts_pipe') || 'percent';
     const weight = Number(String(formData.get('weight') || '0').replace(/,/g, ''));
+    const targetPriceVal = formData.get('targetPrice') ? Number(String(formData.get('targetPrice')).replace(/,/g, '')) : undefined;
     const useRounding = formData.get('itemRounding') === 'on';
     const unitPrice = calculatePrice(costPrice, negoRate, useRounding, negoType, weight);
 
@@ -2071,6 +2077,7 @@ export default function App() {
       unitPrice,
       baseUnitPrice: unitPrice,
       weight,
+      targetPrice: targetPriceVal,
       useRounding,
       remarks: formData.get('remarks') as string,
       maker: formData.get('maker') as string,
@@ -2132,7 +2139,7 @@ export default function App() {
           priceItemId: itemId,
           itemName: item?.itemName || 'Unknown Item',
           spec: item?.spec || '',
-          oldData: item ? { costPrice: item.costPrice, negoRate: item.negoRate, negoType: item.negoType, weight: item.weight } : {},
+          oldData: item ? { costPrice: item.costPrice, negoRate: item.negoRate, negoType: item.negoType, weight: item.weight, targetPrice: item.targetPrice } : {},
           newData: {
             ...updates,
             ...(finalUnitPrice !== undefined ? { unitPrice: finalUnitPrice } : {})
@@ -2184,6 +2191,7 @@ export default function App() {
       '네고방식': item.negoType === 'sts_pipe' ? 'STS' : '%',
       '단중': item.weight || 0,
       '구매단가': item.unitPrice || 0,
+      '목표단가': item.targetPrice || 0,
       '협가': item.costPrice || 0,
       '제조사': item.maker || '',
       '비고': item.remarks || '',
@@ -2783,6 +2791,9 @@ export default function App() {
                                             <div className="flex flex-col items-center">
                                               <div className="flex items-center gap-1 leading-tight">
                                                 <span>₩{entry.unitPrice.toLocaleString()}</span>
+                                                {entry.targetPrice !== undefined && entry.unitPrice > entry.targetPrice && (
+                                                  <AlertTriangle className="h-2.5 w-2.5 text-rose-500 animate-pulse shrink-0" title={`목표단가(₩${entry.targetPrice?.toLocaleString()})를 초과했습니다!`} />
+                                                )}
                                                 {entry.hasPendingUpdate && (
                                                   <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse shrink-0" title="승인 대기 중인 변경 요청이 있습니다." />
                                                 )}
@@ -3465,6 +3476,16 @@ export default function App() {
                           className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-indigo-400 transition-colors bg-transparent z-10"
                         />
                       </th>
+                      <th className="px-4 text-right font-semibold bg-emerald-50/30 text-emerald-700 relative border-r border-slate-50 group/th" style={{ width: columnWidths.targetPrice }}>
+                        <div className="flex items-center justify-end gap-1.5">
+                           <span>목표단가</span>
+                           <Target className="h-3 w-3 text-emerald-400" />
+                        </div>
+                        <div 
+                          onMouseDown={(e) => startResize(e, 'targetPrice')}
+                          className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-indigo-400 transition-colors bg-transparent z-10"
+                        />
+                      </th>
                       <th className="px-4 text-center font-semibold bg-slate-50/80 relative border-r border-slate-50 group/th" style={{ width: columnWidths.negoRate }}>
                         네고율 / KG단가
                         <div 
@@ -3587,7 +3608,35 @@ export default function App() {
                                 title="10원 단위 반올림 적용 여부"
                               />
                               <span>{getRoundedValue(item.unitPrice, item.useRounding).toLocaleString()}</span>
+                              {item.targetPrice !== undefined && getRoundedValue(item.unitPrice, item.useRounding) > item.targetPrice && (
+                                <AlertTriangle className="h-3 w-3 text-rose-500 animate-pulse" title={`목표단가(₩${item.targetPrice?.toLocaleString()})를 초과했습니다!`} />
+                              )}
                             </div>
+                          </td>
+                          <td className="px-4 text-right bg-emerald-50/5">
+                             <div className="flex items-center justify-end gap-1 font-mono font-bold text-emerald-700/80">
+                                <span className="text-[10px]">₩</span>
+                                <input 
+                                  type="text"
+                                  key={`targetPrice-${item.id}-${item.targetPrice || ''}`}
+                                  defaultValue={item.targetPrice?.toLocaleString() || ''}
+                                  onBlur={(e) => {
+                                    const val = e.target.value.replace(/[^0-9]/g, '');
+                                    const numVal = val ? Number(val) : undefined;
+                                    if (numVal !== item.targetPrice) {
+                                      handleInlinePriceUpdate(item.id, 'targetPrice', numVal);
+                                    }
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      e.currentTarget.blur();
+                                    }
+                                  }}
+                                  className="w-full bg-transparent border-none text-right p-0 outline-none focus:ring-1 focus:ring-emerald-500/30 rounded px-1.5 appearance-none text-xs hover:bg-emerald-50/50 focus:bg-white"
+                                  placeholder="-"
+                                  disabled={!canManageItems}
+                                />
+                             </div>
                           </td>
                           <td className="px-4 text-center bg-slate-50/10 font-bold text-indigo-600">
                              <div className="flex items-center justify-center gap-0.5">
@@ -4217,6 +4266,27 @@ export default function App() {
                   <div className="space-y-2">
                     <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">제조사 (Maker)</label>
                     <input name="maker" placeholder="메이커명 입력" className="w-full rounded-2xl border-2 border-slate-100 bg-slate-50 p-4 font-bold text-slate-800 focus:border-indigo-500 focus:bg-white focus:outline-none transition-all" />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-600">목표단가 (Target Price)</label>
+                    <div className="relative">
+                      <span className="absolute left-4 top-1/2 -translate-y-1/2 text-lg font-bold text-emerald-200">₩</span>
+                      <input 
+                        name="targetPrice" 
+                        type="text" 
+                        inputMode="decimal"
+                        placeholder="알림 임계값 설정"
+                        onChange={(e) => {
+                          const val = e.target.value.replace(/,/g, '');
+                          if (val === '' || !isNaN(Number(val))) {
+                            e.target.value = val === '' ? '' : Number(val).toLocaleString();
+                          } else {
+                            e.target.value = e.target.value.replace(/[^0-9.]/g, '');
+                          }
+                        }}
+                        className="w-full rounded-2xl border-2 border-emerald-100 bg-emerald-50/5 p-4 pl-10 font-black text-emerald-700 focus:border-emerald-500 focus:bg-white focus:outline-none transition-all" 
+                      />
+                    </div>
                   </div>
                   <div className="space-y-2">
                     <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">구매 조건 및 비고</label>
@@ -4927,6 +4997,7 @@ export default function App() {
                       negoRate: Number(String(formData.get('negoRate') || '0').replace(/,/g, '')),
                       negoType: formData.get('negoType') as 'percent' | 'sts_pipe',
                       weight: Number(String(formData.get('weight') || '0').replace(/,/g, '')),
+                      targetPrice: formData.get('targetPrice') ? Number(String(formData.get('targetPrice')).replace(/,/g, '')) : undefined,
                       useRounding: formData.get('useRounding') === 'on',
                       maker: formData.get('maker') as string,
                       remarks: formData.get('remarks') as string,
@@ -5034,7 +5105,29 @@ export default function App() {
 
                     <div className="space-y-2">
                       <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">제조사</label>
-                      <input name="maker" defaultValue={item.maker} className="w-full rounded-xl border-2 border-slate-100 bg-slate-50 p-4 font-medium focus:border-indigo-500 outline-none" />
+                      <input name="maker" defaultValue={item.maker} className="w-full rounded-xl border-2 border-slate-100 bg-slate-50 p-4 font-bold focus:border-indigo-500 outline-none" />
+                    </div>
+                    <div className="space-y-2">
+                       <label className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-600">목표단가 (Target Price)</label>
+                       <div className="relative">
+                         <span className="absolute left-4 top-1/2 -translate-y-1/2 text-lg font-bold text-emerald-200">₩</span>
+                         <input 
+                           name="targetPrice" 
+                           type="text" 
+                           inputMode="decimal"
+                           defaultValue={item.targetPrice?.toLocaleString()} 
+                           onChange={(e) => {
+                             const val = e.target.value.replace(/,/g, '');
+                             if (val === '' || !isNaN(Number(val))) {
+                               e.target.value = val === '' ? '' : Number(val).toLocaleString();
+                             } else {
+                               e.target.value = e.target.value.replace(/[^0-9.]/g, '');
+                             }
+                           }}
+                           className="w-full rounded-xl border-2 border-emerald-100 bg-emerald-50/10 p-4 pl-10 font-black text-emerald-700 focus:border-emerald-500 outline-none transition-all" 
+                           placeholder="알림 임계값 설정"
+                         />
+                       </div>
                     </div>
                     <div className="space-y-2 col-span-full">
                       <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">비고</label>

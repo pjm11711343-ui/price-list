@@ -58,6 +58,7 @@ export interface PriceItem {
   useRounding?: boolean;
   hasPendingUpdate?: boolean; // 승인 대기 중 여부
   priceHistory?: { price: number; date: any }[]; // 최근 3개 가격 변동 이력
+  targetPrice?: number; // 목표가 / 알림 임계값
   updatedAt?: any;
 }
 
