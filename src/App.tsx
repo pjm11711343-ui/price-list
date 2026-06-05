@@ -2294,7 +2294,7 @@ export default function App() {
     const negoRate = Number(String(formData.get('negoRate') || '0').replace(/,/g, ''));
     const negoType = (formData.get('negoType') as 'percent' | 'sts_pipe') || 'percent';
     const weight = Number(String(formData.get('weight') || '0').replace(/,/g, ''));
-    const targetPriceVal = formData.get('targetPrice') ? Number(String(formData.get('targetPrice')).replace(/,/g, '')) : undefined;
+    const targetPriceVal = formData.get('targetPrice') ? Number(String(formData.get('targetPrice')).replace(/,/g, '')) : null;
     const useRounding = formData.get('itemRounding') === 'on';
     const unitPrice = calculatePrice(costPrice, negoRate, useRounding, negoType, weight);
 
@@ -2303,8 +2303,8 @@ export default function App() {
       itemName: formData.get('itemName') as string,
       itemCode: (formData.get('itemCode') as string) || '',
       category: (formData.get('category') as string) || '',
-      spec: formData.get('spec') as string,
-      unit: formData.get('unit') as string,
+      spec: (formData.get('spec') as string) || '',
+      unit: (formData.get('unit') as string) || '',
       costPrice,
       negoRate,
       negoType,
@@ -2313,8 +2313,8 @@ export default function App() {
       weight,
       targetPrice: targetPriceVal,
       useRounding,
-      remarks: formData.get('remarks') as string,
-      maker: formData.get('maker') as string,
+      remarks: (formData.get('remarks') as string) || '',
+      maker: (formData.get('maker') as string) || '',
       order: priceItems.length + 1,
       updatedAt: serverTimestamp()
     };
