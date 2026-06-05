@@ -258,6 +258,8 @@ export default function App() {
   const [bulkItemFile, setBulkItemFile] = useState<File | null>(null);
   const [isBulkItemUploadOpen, setIsBulkItemUploadOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [isMoveCategoryOpen, setIsMoveCategoryOpen] = useState(false);
+  const [targetVendorId, setTargetVendorId] = useState('');
   const [isDraggingNotice, setIsDraggingNotice] = useState(false);
   const [editingPriceId, setEditingPriceId] = useState<string | null>(null);
   const [priceTableFile, setPriceTableFile] = useState<File | null>(null);
@@ -601,6 +603,105 @@ export default function App() {
       console.error("Error updating categories:", error);
       alert(`카테고리 업데이트에 실패했습니다. (${error.message || '권한 부족'})`);
       return false;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleBulkMoveCategory = async () => {
+    if (!selectedVendor || !activeCategory || activeCategory === '전체' || !targetVendorId) {
+      alert('이동할 대상 정보가 올바르지 않습니다.');
+      return;
+    }
+
+    const targetVendor = vendors.find(v => v.id === targetVendorId);
+    if (!targetVendor) {
+      alert('대상 업체를 찾을 수 없습니다.');
+      return;
+    }
+
+    const itemsToMove = priceItems.filter(item => item.category === activeCategory);
+    if (itemsToMove.length === 0) {
+      alert('현재 카테고리에 이동할 품목이 없습니다.');
+      return;
+    }
+
+    if (!confirm(`'${activeCategory}' 카테고리의 품목 ${itemsToMove.length}개를 '${targetVendor.name}' 업체로 일괄 이동하시겠습니까?\n\n※ 이동 시 현재 업체에 있는 해당 품목들은 자동 삭제되고, 지정된 대상으로 완전 이동됩니다.`)) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      // Step 1: Ensure activeCategory exists in target vendor's categories list
+      const targetCategories = targetVendor.categories || [];
+      if (!targetCategories.includes(activeCategory)) {
+        const updatedTargetCategories = [...targetCategories, activeCategory];
+        const targetVendorRef = doc(db, 'vendors', targetVendorId);
+        await updateDoc(targetVendorRef, {
+          categories: updatedTargetCategories,
+          updatedAt: serverTimestamp()
+        });
+      }
+
+      // Step 2: Use writeBatch with size limit: 500 max writes.
+      // 1 item move utilizes 1 create write and 1 delete write = 2 total writes per item. Chunk size 200 is extremely safe.
+      const CHUNK_SIZE = 200;
+      for (let i = 0; i < itemsToMove.length; i += CHUNK_SIZE) {
+        const chunk = itemsToMove.slice(i, i + CHUNK_SIZE);
+        const batch = writeBatch(db);
+
+        for (const item of chunk) {
+          const newDocRef = doc(collection(db, 'vendors', targetVendorId, 'prices'));
+          const movedItem = {
+            vendorId: targetVendorId,
+            itemName: item.itemName,
+            itemCode: item.itemCode || '',
+            category: activeCategory,
+            spec: item.spec || '',
+            unit: item.unit || '',
+            costPrice: item.costPrice || 0,
+            negoRate: item.negoRate || 0,
+            negoType: item.negoType || 'percent',
+            unitPrice: item.unitPrice || 0,
+            baseUnitPrice: item.baseUnitPrice || item.unitPrice || 0,
+            weight: item.weight || 0,
+            targetPrice: item.targetPrice ?? null,
+            useRounding: item.useRounding || false,
+            remarks: item.remarks || '',
+            maker: item.maker || '',
+            order: item.order || 1,
+            updatedAt: serverTimestamp()
+          };
+          batch.set(newDocRef, movedItem);
+
+          const oldDocRef = doc(db, 'vendors', selectedVendor.id, 'prices', item.id);
+          batch.delete(oldDocRef);
+        }
+
+        await batch.commit();
+      }
+
+      // Step 3: Remove the category from the source vendor's categories list
+      const newSourceCategories = categories.filter(c => c !== activeCategory);
+      const sourceVendorRef = doc(db, 'vendors', selectedVendor.id);
+      await updateDoc(sourceVendorRef, {
+        categories: newSourceCategories,
+        updatedAt: serverTimestamp()
+      });
+
+      // Update local UI states
+      setCategories(newSourceCategories);
+      setSelectedVendor(prev => prev ? { ...prev, categories: newSourceCategories } : null);
+      setActiveCategory('전체');
+      setIsMoveCategoryOpen(false);
+      setTargetVendorId('');
+
+      alert(`'${activeCategory}' 카테고리의 ${itemsToMove.length}개 품목이 '${targetVendor.name}'(으)로 일괄 이동 완료되었습니다.`);
+    } catch (error) {
+      console.error("Bulk move category error:", error);
+      handleFirestoreError(error, OperationType.WRITE, `vendors/${selectedVendor.id}/prices`);
+      alert('품목 이동 중 오류가 발생했습니다.');
     } finally {
       setLoading(false);
     }
@@ -3353,6 +3454,19 @@ export default function App() {
                     </button>
                     {isActuallyAuthorized && (
                       <div className="flex items-center gap-2">
+                        {activeCategory !== '전체' && (
+                          <button 
+                            onClick={() => {
+                              const otherVendors = vendors.filter(v => v.id !== selectedVendor?.id);
+                              setTargetVendorId(otherVendors[0]?.id || '');
+                              setIsMoveCategoryOpen(true);
+                            }}
+                            className="h-8 px-4 border border-amber-200 text-amber-700 bg-amber-50/50 text-xs font-bold rounded hover:bg-amber-100 transition-all flex items-center gap-1.5"
+                          >
+                            <ArrowLeftRight className="h-3.5 w-3.5" />
+                            타 업체 일괄 이동
+                          </button>
+                        )}
                         <button 
                           onClick={() => setIsBulkItemUploadOpen(true)}
                           className="h-8 px-4 border border-indigo-200 text-indigo-600 bg-indigo-50/50 text-xs font-bold rounded hover:bg-indigo-100 transition-all flex items-center gap-1.5"
@@ -3405,19 +3519,34 @@ export default function App() {
                       </span>
                     </button>
                     {cat !== '전체' && canManageItems && activeCategory === cat && (
-                      <button 
-                        onClick={async (e) => {
-                          e.stopPropagation();
-                          if (confirm(`'${cat}' 카테고리를 삭제하시겠습니까?\n해당 카테고리의 품목들을 먼저 확인해주세요.`)) {
-                            const newCats = categories.filter(c => c !== cat);
-                            await updateVendorCategories(newCats);
-                            setActiveCategory('전체');
-                          }
-                        }}
-                        className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover/cat:opacity-100 transition-opacity scale-75"
-                      >
-                        <X className="h-2 w-2" />
-                      </button>
+                      <div className="absolute -top-1.5 -right-2 flex items-center gap-0.5 opacity-0 group-hover/cat:opacity-100 transition-opacity z-10 bg-white shadow-sm border border-slate-100 rounded-full p-0.5">
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const otherVendors = vendors.filter(v => v.id !== selectedVendor?.id);
+                            setTargetVendorId(otherVendors[0]?.id || '');
+                            setIsMoveCategoryOpen(true);
+                          }}
+                          className="w-4 h-4 bg-amber-500 text-white rounded-full flex items-center justify-center scale-90 hover:bg-amber-600 transition-colors"
+                          title="다른 업체로 카테고리 품목 일괄 이동"
+                        >
+                          <ArrowLeftRight className="h-2 w-2" />
+                        </button>
+                        <button 
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            if (confirm(`'${cat}' 카테고리를 삭제하시겠습니까?\n해당 카테고리의 품목들을 먼저 확인해주세요.`)) {
+                              const newCats = categories.filter(c => c !== cat);
+                              await updateVendorCategories(newCats);
+                              setActiveCategory('전체');
+                            }
+                          }}
+                          className="w-4 h-4 bg-rose-500 text-white rounded-full flex items-center justify-center scale-90 hover:bg-rose-600 transition-colors"
+                          title="카테고리 삭제"
+                        >
+                          <X className="h-2 w-2" />
+                        </button>
+                      </div>
                     )}
                   </div>
                 ))}
@@ -4955,6 +5084,69 @@ export default function App() {
                   className="flex-1 py-4 bg-indigo-600 text-white font-black rounded-2xl hover:bg-slate-900 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-xl shadow-indigo-200"
                 >
                   업로드 및 데이터 생성
+                </button>
+              </div>
+            </div>
+          </Modal>
+        )}
+
+        {isMoveCategoryOpen && (
+          <Modal key="modal-move-category" title="취급품목 타 업체 일괄 이동" onClose={() => setIsMoveCategoryOpen(false)}>
+            <div className="space-y-6">
+              <div className="text-center py-4">
+                <div className="w-16 h-16 bg-amber-50 text-amber-600 border border-amber-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                  <ArrowLeftRight className="h-8 w-8" />
+                </div>
+                <h3 className="text-xl font-bold text-slate-800 mb-2">카테고리 품목 타 업체 일괄 이동</h3>
+                <p className="text-slate-500 text-sm">
+                  현재 업체의 <span className="text-amber-600 font-bold">'{activeCategory}'</span> 카테고리에 있는 <span className="text-amber-600 font-bold">{priceItems.filter(i => i.category === activeCategory).length}개</span>의 품목을 다른 업체로 일괄 이동합니다.
+                  <br />
+                  이동 완료 후 현재 업체에서는 해당 품목들이 삭제됩니다.
+                </p>
+              </div>
+
+              <div className="bg-slate-50 border border-slate-100 rounded-2xl p-5">
+                <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">이동할 대상 업체 선택</label>
+                <div className="relative">
+                  <select 
+                    value={targetVendorId} 
+                    onChange={(e) => setTargetVendorId(e.target.value)}
+                    className="w-full rounded-xl border-2 border-slate-100 bg-white p-4 font-bold text-slate-700 focus:border-indigo-500 focus:outline-none appearance-none cursor-pointer"
+                  >
+                    {vendors.filter(v => v.id !== selectedVendor?.id).map(vendor => (
+                      <option key={vendor.id} value={vendor.id}>
+                        {vendor.name} ({vendor.categories?.length || 0}개 카테고리 보유)
+                      </option>
+                    ))}
+                    {vendors.filter(v => v.id !== selectedVendor?.id).length === 0 && (
+                      <option value="">선택할 수 있는 다른 업체가 없습니다.</option>
+                    )}
+                  </select>
+                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-slate-500">
+                    <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
+                      <path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/>
+                    </svg>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex gap-4 pt-4">
+                <button 
+                  onClick={() => {
+                    setIsMoveCategoryOpen(false);
+                    setTargetVendorId('');
+                  }}
+                  className="flex-1 py-4 bg-slate-100 text-slate-600 font-bold rounded-2xl hover:bg-slate-200 transition-all text-sm"
+                >
+                  취소
+                </button>
+                <button 
+                  onClick={handleBulkMoveCategory}
+                  disabled={!targetVendorId}
+                  className="flex-1 py-4 bg-amber-500 text-white font-black rounded-2xl hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-xl shadow-amber-200 text-sm flex items-center justify-center gap-2"
+                >
+                  <ArrowLeftRight className="h-4 w-4" />
+                  일괄 이동 실행
                 </button>
               </div>
             </div>
