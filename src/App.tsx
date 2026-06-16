@@ -1580,8 +1580,8 @@ export default function App() {
     const reader = new FileReader();
     reader.onload = async (evt) => {
       try {
-        const bstr = evt.target?.result;
-        const wb = XLSX.read(bstr, { type: 'binary' });
+        const buffer = evt.target?.result;
+        const wb = XLSX.read(buffer, { type: 'array' });
         const wsname = wb.SheetNames[0];
         const ws = wb.Sheets[wsname];
         const data = XLSX.utils.sheet_to_json(ws) as any[];
@@ -1590,19 +1590,26 @@ export default function App() {
         
         let count = 0;
         for (const row of data) {
-          const vendorData = {
-            name: row['업체명'] || row['Name'] || '',
-            representative: row['대표자'] || row['Representative'] || '',
-            businessNumber: row['사업자번호'] || row['Business Number'] || '',
-            phone: row['전화번호'] || row['Phone'] || '',
-            fax: row['팩스번호'] || row['Fax'] || '',
-            email: row['이메일'] || row['Email'] || '',
-            password: String(row['비밀번호'] || row['Password'] || '1234'),
+          const vendorData: any = {
+            name: String(row['업체명'] || row['Name'] || '').trim(),
+            representative: String(row['대표자'] || row['Representative'] || '').trim(),
+            businessNumber: String(row['사업자번호'] || row['Business Number'] || '').trim(),
+            phone: String(row['전화번호'] || row['Phone'] || '').trim(),
+            fax: String(row['팩스번호'] || row['Fax'] || '').trim(),
+            email: String(row['이메일'] || row['Email'] || '').trim(),
+            password: String(row['비밀번호'] || row['Password'] || '1234').trim(),
             order: count,
             deleted: false,
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp()
           };
+
+          // Defense against undefined properties
+          Object.keys(vendorData).forEach(key => {
+            if (vendorData[key] === undefined) {
+              vendorData[key] = '';
+            }
+          });
 
           if (vendorData.name) {
             await addDoc(collection(db, "vendors"), vendorData);
@@ -1620,7 +1627,7 @@ export default function App() {
         setLoading(false);
       }
     };
-    reader.readAsBinaryString(bulkFile);
+    reader.readAsArrayBuffer(bulkFile);
   };
 
   const downloadPriceTemplate = () => {
@@ -1676,11 +1683,27 @@ export default function App() {
     setIsBulkItemUploadOpen(false);
     setLoading(true);
 
+    const parseNumber = (val: any): number => {
+      if (val === undefined || val === null) return 0;
+      if (typeof val === 'number') return isNaN(val) ? 0 : val;
+      const sanitized = String(val).replace(/[^0-9.-]/g, '');
+      const parsed = Number(sanitized);
+      return isNaN(parsed) ? 0 : parsed;
+    };
+
+    const parseTargetPrice = (val: any): number | null => {
+      if (val === undefined || val === null || String(val).trim() === '') return null;
+      if (typeof val === 'number') return isNaN(val) ? null : val;
+      const sanitized = String(val).replace(/[^0-9.-]/g, '');
+      const parsed = Number(sanitized);
+      return isNaN(parsed) ? null : parsed;
+    };
+
     const reader = new FileReader();
     reader.onload = async (evt) => {
       try {
-        const bstr = evt.target?.result;
-        const wb = XLSX.read(bstr, { type: 'binary' });
+        const buffer = evt.target?.result;
+        const wb = XLSX.read(buffer, { type: 'array' });
         const wsname = wb.SheetNames[0];
         const ws = wb.Sheets[wsname];
         const data = XLSX.utils.sheet_to_json(ws) as any[];
@@ -1714,8 +1737,8 @@ export default function App() {
         for (const chunk of chunks) {
           const batch = writeBatch(db);
           chunk.forEach((row, index) => {
-            const costPrice = Number(row['협가'] || row['구매단가(입력)'] || row['현단가'] || row['단가'] || row['Price'] || 0);
-            const negoRate = Number(row['네고율'] || row['네고율(%)'] || row['네고치'] || row['Discount'] || 0);
+            const costPrice = parseNumber(row['협가'] || row['구매단가(입력)'] || row['현단가'] || row['단가'] || row['Price']);
+            const negoRate = parseNumber(row['네고율'] || row['네고율(%)'] || row['네고치'] || row['Discount']);
 
             let negoType: 'percent' | 'sts_pipe' = 'percent';
             const rawType = String(row['네고방식'] || row['Nego Type'] || '').trim();
@@ -1723,9 +1746,9 @@ export default function App() {
               negoType = 'sts_pipe';
             }
 
-            const weight = Number(row['단중'] || row['Weight'] || 0);
+            const weight = parseNumber(row['단중'] || row['Weight']);
             const targetVal = row['목표단가'] || row['Target Price'];
-            const targetPrice = targetVal ? Number(String(targetVal).replace(/[^0-9.]/g, '')) : null;
+            const targetPrice = parseTargetPrice(targetVal);
 
             const itemRounding = row['반올림여부'] !== undefined ? 
                                (row['반올림여부'] === 'Y' || row['반올림여부'] === true) : 
@@ -1758,6 +1781,15 @@ export default function App() {
               updatedAt: serverTimestamp()
             };
 
+            // Safeguard against any unexpected undefined or NaN values in the write payload
+            Object.keys(itemData).forEach(key => {
+              if (itemData[key] === undefined) {
+                itemData[key] = null;
+              } else if (typeof itemData[key] === 'number' && isNaN(itemData[key])) {
+                itemData[key] = key === 'targetPrice' ? null : 0;
+              }
+            });
+
             const key = `${itemName}_${spec}_${category}`;
             const existingEntry = existingItemsMap.get(key);
 
@@ -1767,21 +1799,38 @@ export default function App() {
 
               if (isDeepLinkMode && !isAdminMode) {
                 const hasChanged = 
-                  Number(existingItem.costPrice || 0) !== costPrice ||
-                  Number(existingItem.negoRate || 0) !== negoRate ||
-                  (existingItem.negoType || 'percent') !== negoType ||
-                  Number(existingItem.weight || 0) !== weight ||
-                  Number(existingItem.unitPrice || 0) !== unitPrice ||
-                  (existingItem.remarks || '') !== (itemData.remarks || '') ||
-                  (existingItem.maker || '') !== (itemData.maker || '') ||
-                  (existingItem.category || '') !== (itemData.category || '') ||
-                  (existingItem.useRounding !== itemRounding);
+                   Number(existingItem.costPrice || 0) !== costPrice ||
+                   Number(existingItem.negoRate || 0) !== negoRate ||
+                   (existingItem.negoType || 'percent') !== negoType ||
+                   Number(existingItem.weight || 0) !== weight ||
+                   Number(existingItem.unitPrice || 0) !== unitPrice ||
+                   (existingItem.remarks || '') !== (itemData.remarks || '') ||
+                   (existingItem.maker || '') !== (itemData.maker || '') ||
+                   (existingItem.category || '') !== (itemData.category || '') ||
+                   (existingItem.useRounding !== itemRounding);
 
                 if (hasChanged) {
                   if (existingItem.hasPendingUpdate) {
                     skippedPendingCount++;
                   } else {
                     const pendingRef = doc(collection(db, 'pending_updates'));
+                    const pendingNewData: any = {
+                      costPrice,
+                      negoRate,
+                      negoType,
+                      weight,
+                      unitPrice,
+                      remarks: itemData.remarks,
+                      maker: itemData.maker,
+                      category,
+                      useRounding: itemRounding,
+                    };
+                    Object.keys(pendingNewData).forEach(k => {
+                      if (pendingNewData[k] === undefined) {
+                        pendingNewData[k] = null;
+                      }
+                    });
+
                     batch.set(pendingRef, {
                       vendorId: selectedVendor.id,
                       priceItemId: existingId,
@@ -1798,17 +1847,7 @@ export default function App() {
                         category: existingItem.category || '',
                         useRounding: existingItem.useRounding ?? true
                       },
-                      newData: {
-                        costPrice,
-                        negoRate,
-                        negoType,
-                        weight,
-                        unitPrice,
-                        remarks: itemData.remarks,
-                        maker: itemData.maker,
-                        category,
-                        useRounding: itemRounding,
-                      },
+                      newData: pendingNewData,
                       status: 'pending',
                       requestedBy: '업체(링크)',
                       requestedAt: serverTimestamp()
@@ -1822,7 +1861,7 @@ export default function App() {
               } else {
                 const itemRef = doc(db, "vendors", selectedVendor.id, "prices", existingId);
                 const finalItemData = { ...itemData };
-                if (existingItem && itemData.unitPrice !== undefined) {
+                if (existingItem && itemData.unitPrice !== undefined && itemData.unitPrice !== null) {
                    finalItemData.priceHistory = getUpdatedPriceHistory(existingItem, itemData.unitPrice);
                 }
                 batch.update(itemRef, finalItemData);
@@ -1857,7 +1896,7 @@ export default function App() {
         setLoading(false);
       }
     };
-    reader.readAsBinaryString(bulkItemFile);
+    reader.readAsArrayBuffer(bulkItemFile);
   };
 
   // Fetch Vendors
@@ -2445,11 +2484,19 @@ export default function App() {
     const file = e.target.files?.[0];
     if (!file || !selectedVendor) return;
 
+    const parseNumber = (val: any): number => {
+      if (val === undefined || val === null) return 0;
+      if (typeof val === 'number') return isNaN(val) ? 0 : val;
+      const sanitized = String(val).replace(/[^0-9.-]/g, '');
+      const parsed = Number(sanitized);
+      return isNaN(parsed) ? 0 : parsed;
+    };
+
     const reader = new FileReader();
     reader.onload = async (evt) => {
       try {
-        const bstr = evt.target?.result;
-        const wb = XLSX.read(bstr, { type: 'binary' });
+        const buffer = evt.target?.result;
+        const wb = XLSX.read(buffer, { type: 'array' });
         const wsname = wb.SheetNames[0];
         const ws = wb.Sheets[wsname];
         const data = XLSX.utils.sheet_to_json(ws) as any[];
@@ -2458,8 +2505,8 @@ export default function App() {
         let importCount = 0;
 
         for (const row of data) {
-          const costPrice = Number(row['협가'] || row['구매단가(입력)'] || row['현단가'] || row['단가'] || row['Negotiated Price'] || 0);
-          const negoRate = Number(row['네고율'] || row['네고율(%)'] || row['Nego Rate'] || 0);
+          const costPrice = parseNumber(row['협가'] || row['구매단가(입력)'] || row['현단가'] || row['단가'] || row['Negotiated Price']);
+          const negoRate = parseNumber(row['네고율'] || row['네고율(%)'] || row['Nego Rate']);
           
           let negoType: 'percent' | 'sts_pipe' = 'percent';
           const rawType = String(row['네고방식'] || row['Nego Type'] || '').trim().toUpperCase();
@@ -2467,26 +2514,35 @@ export default function App() {
             negoType = 'sts_pipe';
           }
 
-          const weight = Number(row['단중'] || row['Weight'] || 0);
+          const weight = parseNumber(row['단중'] || row['Weight']);
           const unitPrice = calculatePrice(costPrice, negoRate, undefined, negoType, weight);
 
-          const newItem = {
+          const newItem: any = {
             vendorId: selectedVendor.id,
-            itemCode: row['품번'] || row['품목코드'] || row['품번'] || row['Item Code'] || '',
-            itemName: row['품목명'] || row['품목'] || '',
-            spec: row['규격'] || '',
-            unit: row['단위'] || '',
-            maker: row['메이커'] || row['제조사'] || '',
+            itemCode: String(row['품번'] || row['품목코드'] || row['Item Code'] || ''),
+            itemName: String(row['품목명'] || row['품목'] || ''),
+            spec: String(row['규격'] || ''),
+            unit: String(row['단위'] || ''),
+            maker: String(row['메이커'] || row['제조사'] || ''),
             costPrice,
             negoRate,
             negoType,
             weight,
             unitPrice,
             baseUnitPrice: unitPrice,
-            remarks: row['비고'] || '',
+            remarks: String(row['비고'] || ''),
             order: priceItems.length + importCount + 1,
             updatedAt: serverTimestamp()
           };
+
+          // Sanitize payload from undefined or NaN values
+          Object.keys(newItem).forEach(key => {
+            if (newItem[key] === undefined) {
+              newItem[key] = null;
+            } else if (typeof newItem[key] === 'number' && isNaN(newItem[key])) {
+              newItem[key] = 0;
+            }
+          });
 
           if (newItem.itemName) {
             await addDoc(collection(db, 'vendors', selectedVendor.id, 'prices'), newItem);
@@ -2503,7 +2559,7 @@ export default function App() {
         if (fileInputRef.current) fileInputRef.current.value = '';
       }
     };
-    reader.readAsBinaryString(file);
+    reader.readAsArrayBuffer(file);
   };
 
   const sidebarVendors = useMemo(() => {
