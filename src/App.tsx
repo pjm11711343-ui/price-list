@@ -1079,6 +1079,7 @@ export default function App() {
 
   const handleInlinePriceUpdate = async (id: string, field: string, value: any) => {
     if (!selectedVendor) return;
+    const sanitizedValue = value === undefined ? null : value;
     if (isGuestMode) {
       alert('게스트 모드에서는 수정할 수 없습니다.');
       return;
@@ -1091,32 +1092,32 @@ export default function App() {
       const updates: any = {};
 
       if (field === 'costPrice') {
-        const newCost = Number(value);
+        const newCost = Number(sanitizedValue);
         const newUnitPrice = calculatePrice(newCost, item.negoRate, item.useRounding, item.negoType || 'percent', item.weight);
         updates.costPrice = newCost;
         updates.unitPrice = newUnitPrice;
       } else if (field === 'weight') {
-        const newWeight = Number(value);
+        const newWeight = Number(sanitizedValue);
         const newUnitPrice = calculatePrice(item.costPrice, item.negoRate, item.useRounding, item.negoType || 'percent', newWeight);
         updates.weight = newWeight;
         updates.unitPrice = newUnitPrice;
       } else if (field === 'negoRate') {
-        const newNegoRate = Number(value);
+        const newNegoRate = Number(sanitizedValue);
         const newUnitPrice = calculatePrice(item.costPrice, newNegoRate, item.useRounding, item.negoType || 'percent', item.weight);
         updates.negoRate = newNegoRate;
         updates.unitPrice = newUnitPrice;
       } else if (field === 'negoType') {
-        const newType = value as 'percent' | 'sts_pipe';
+        const newType = sanitizedValue as 'percent' | 'sts_pipe';
         const newUnitPrice = calculatePrice(item.costPrice, item.negoRate, item.useRounding, newType, item.weight);
         updates.negoType = newType;
         updates.unitPrice = newUnitPrice;
       } else if (field === 'useRounding') {
-        const newUseRounding = value as boolean;
+        const newUseRounding = sanitizedValue as boolean;
         const newUnitPrice = calculatePrice(item.costPrice, item.negoRate, newUseRounding, item.negoType || 'percent', item.weight);
         updates.useRounding = newUseRounding;
         updates.unitPrice = newUnitPrice;
       } else {
-        updates[field] = value;
+        updates[field] = sanitizedValue;
       }
 
       if (isDeepLinkMode && !isAdminMode) {
@@ -1723,7 +1724,8 @@ export default function App() {
             }
 
             const weight = Number(row['단중'] || row['Weight'] || 0);
-            const targetPrice = row['목표단가'] || row['Target Price'] ? Number(String(row['목표단가'] || row['Target Price']).replace(/[^0-9.]/g, '')) : undefined;
+            const targetVal = row['목표단가'] || row['Target Price'];
+            const targetPrice = targetVal ? Number(String(targetVal).replace(/[^0-9.]/g, '')) : null;
 
             const itemRounding = row['반올림여부'] !== undefined ? 
                                (row['반올림여부'] === 'Y' || row['반올림여부'] === true) : 
@@ -5591,7 +5593,7 @@ export default function App() {
                       negoRate: Number(String(formData.get('negoRate') || '0').replace(/,/g, '')),
                       negoType: formData.get('negoType') as 'percent' | 'sts_pipe',
                       weight: Number(String(formData.get('weight') || '0').replace(/,/g, '')),
-                      targetPrice: formData.get('targetPrice') ? Number(String(formData.get('targetPrice')).replace(/,/g, '')) : undefined,
+                      targetPrice: formData.get('targetPrice') ? Number(String(formData.get('targetPrice')).replace(/,/g, '')) : null,
                       useRounding: formData.get('useRounding') === 'on',
                       maker: formData.get('maker') as string,
                       remarks: formData.get('remarks') as string,
