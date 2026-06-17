@@ -2676,10 +2676,10 @@ export default function App() {
                   {isAdminMode ? '관리모드 해제' : '관리자'}
                 </button>
                 {isAdminMode && (
-                  <div className="flex items-center gap-1 ml-2 border-l border-slate-200 pl-3">
+                  <div className="flex items-center gap-1.5 ml-2 border-l border-slate-200 pl-3">
                     <button 
                       onClick={() => setIsChangingAdminPassword(true)}
-                      className="text-[11px] font-bold text-slate-400 hover:text-slate-600 bg-slate-100 px-2 py-1 rounded"
+                      className="text-[11px] font-bold text-slate-500 hover:text-slate-700 bg-slate-100 px-2 py-1 rounded"
                     >
                       암호변경
                     </button>
@@ -2689,6 +2689,14 @@ export default function App() {
                     >
                       <LinkIcon className="h-3 w-3" />
                       {copySuccess ? '복사됨!' : '게스트링크'}
+                    </button>
+                    <button 
+                      onClick={handleBackupAllData}
+                      className="flex items-center gap-1 text-[11px] font-black bg-indigo-600 hover:bg-indigo-700 text-white px-2.5 py-1 rounded shadow-sm transition-all"
+                      title="모든 업체의 취급 품목 단가표를 엑셀 문서로 일괄 백업합니다."
+                    >
+                      <Download className="h-3 w-3" />
+                      업체일괄 백업
                     </button>
                   </div>
                 )}
