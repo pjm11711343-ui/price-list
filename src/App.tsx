@@ -43,7 +43,15 @@ import {
   DollarSign,
   Factory,
   Globe,
-  Copy
+  Copy,
+  HelpCircle,
+  FileCheck,
+  CheckCircle2,
+  CreditCard,
+  Receipt,
+  Eye,
+  Paperclip,
+  ShieldCheck
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -267,6 +275,36 @@ export default function App() {
   const [targetVendorId, setTargetVendorId] = useState('');
   const [isDraggingNotice, setIsDraggingNotice] = useState(false);
   const [editingPriceId, setEditingPriceId] = useState<string | null>(null);
+  const [editModalTab, setEditModalTab] = useState<'info' | 'history'>('info');
+  const [isVendorGuideOpen, setIsVendorGuideOpen] = useState(false);
+  
+  // Vendor document management state (사업자등록증, 통장사본, 전자어음약정확인서)
+  const [isVendorDocsModalOpen, setIsVendorDocsModalOpen] = useState(false);
+  const [isUploadingDoc, setIsUploadingDoc] = useState(false);
+  const [activeDocDragging, setActiveDocDragging] = useState<string | null>(null);
+  const [previewDoc, setPreviewDoc] = useState<{
+    title: string;
+    url: string;
+    fileType: 'image' | 'pdf' | 'unknown';
+    fileName: string;
+    docKey: 'businessCert' | 'bankbook' | 'promissoryNote';
+  } | null>(null);
+
+  // Files for Add Vendor Modal
+  const [addBusinessCertFile, setAddBusinessCertFile] = useState<File | null>(null);
+  const [addBankbookFile, setAddBankbookFile] = useState<File | null>(null);
+  const [addPromissoryNoteFile, setAddPromissoryNoteFile] = useState<File | null>(null);
+
+  // Files for Edit Vendor Modal
+  const [editBusinessCertFile, setEditBusinessCertFile] = useState<File | null>(null);
+  const [editBankbookFile, setEditBankbookFile] = useState<File | null>(null);
+  const [editPromissoryNoteFile, setEditPromissoryNoteFile] = useState<File | null>(null);
+
+  useEffect(() => {
+    if (editingPriceId) {
+      setEditModalTab('info');
+    }
+  }, [editingPriceId]);
   const [priceTableFile, setPriceTableFile] = useState<File | null>(null);
   const [noticeFile, setNoticeFile] = useState<File | null>(null);
   const [excelPreviewData, setExcelPreviewData] = useState<any[] | null>(null);
@@ -2151,6 +2189,119 @@ export default function App() {
       );
   }, [baseSortedVendors, vendorSearchTerm]);
 
+  const uploadVendorDocFile = async (
+    vendorId: string, 
+    docType: 'businessCert' | 'bankbook' | 'promissoryNote', 
+    file: File
+  ): Promise<{ url: string; fileName: string; fileType: 'image' | 'pdf' | 'unknown' }> => {
+    if (file.size > 15 * 1024 * 1024) {
+      throw new Error("파일 크기가 너무 큽니다. (최대 15MB)");
+    }
+    const fileExt = file.name.split('.').pop()?.toLowerCase();
+    let fileType: 'image' | 'pdf' | 'unknown' = 'unknown';
+    if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(fileExt || '') || file.type.startsWith('image/')) {
+      fileType = 'image';
+    } else if (fileExt === 'pdf' || file.type === 'application/pdf') {
+      fileType = 'pdf';
+    }
+
+    const cleanName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const fileName = `vendor_${vendorId}_${docType}_${Date.now()}_${cleanName}`;
+    
+    try {
+      const sRef = storageRef(storage, `vendor_docs/${fileName}`);
+      const snapshot = await uploadBytes(sRef, file);
+      const url = await getDownloadURL(snapshot.ref);
+      return { url, fileName: file.name, fileType };
+    } catch (err: any) {
+      console.warn("Storage upload failed, attempting fallback...", err);
+      if (file.size <= 800 * 1024) {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            resolve({
+              url: reader.result as string,
+              fileName: file.name,
+              fileType
+            });
+          };
+          reader.onerror = () => reject(err);
+          reader.readAsDataURL(file);
+        });
+      }
+      throw err;
+    }
+  };
+
+  const handleUploadSingleDoc = async (
+    docType: 'businessCert' | 'bankbook' | 'promissoryNote', 
+    file: File
+  ) => {
+    if (!selectedVendor) return;
+    setIsUploadingDoc(true);
+    const docLabels: Record<string, string> = {
+      businessCert: '사업자등록증',
+      bankbook: '통장사본',
+      promissoryNote: '전자어음약정확인서'
+    };
+    try {
+      const res = await uploadVendorDocFile(selectedVendor.id, docType, file);
+      const updatePayload: Record<string, any> = {
+        [`${docType}Url`]: res.url,
+        [`${docType}FileName`]: res.fileName,
+        [`${docType}FileType`]: res.fileType,
+        [`${docType}UpdatedAt`]: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      };
+      await updateDoc(doc(db, 'vendors', selectedVendor.id), updatePayload);
+      setSelectedVendor(prev => prev ? { ...prev, ...updatePayload } : null);
+      setVendors(prev => prev.map(v => v.id === selectedVendor.id ? { ...v, ...updatePayload } : v));
+      alert(`${docLabels[docType]} 첨부가 완료되었습니다.`);
+    } catch (error: any) {
+      console.error("Error uploading doc:", error);
+      let msg = error.message || "문서 업로드에 실패했습니다.";
+      if (error.code === 'storage/retry-limit-exceeded' || error.code === 'storage/unauthorized') {
+        msg = "저장소 접근 권한 오류가 발생했습니다. (파일 크기가 800KB 이하인 경우 자동 대체 저장됩니다.)";
+      }
+      alert(msg);
+    } finally {
+      setIsUploadingDoc(false);
+    }
+  };
+
+  const handleDeleteSingleDoc = async (docType: 'businessCert' | 'bankbook' | 'promissoryNote') => {
+    if (!selectedVendor) return;
+    const docLabels: Record<string, string> = {
+      businessCert: '사업자등록증',
+      bankbook: '통장사본',
+      promissoryNote: '전자어음약정확인서'
+    };
+    if (!confirm(`${docLabels[docType]} 파일을 삭제하시겠습니까?`)) return;
+
+    setIsUploadingDoc(true);
+    try {
+      const updatePayload: Record<string, any> = {
+        [`${docType}Url`]: '',
+        [`${docType}FileName`]: '',
+        [`${docType}FileType`]: 'unknown',
+        [`${docType}UpdatedAt`]: null,
+        updatedAt: serverTimestamp()
+      };
+      await updateDoc(doc(db, 'vendors', selectedVendor.id), updatePayload);
+      setSelectedVendor(prev => prev ? { ...prev, ...updatePayload } : null);
+      setVendors(prev => prev.map(v => v.id === selectedVendor.id ? { ...v, ...updatePayload } : v));
+      if (previewDoc?.docKey === docType) {
+        setPreviewDoc(null);
+      }
+      alert(`${docLabels[docType]} 파일이 삭제되었습니다.`);
+    } catch (error: any) {
+      console.error("Error deleting doc:", error);
+      alert("파일 삭제 중 오류가 발생했습니다: " + error.message);
+    } finally {
+      setIsUploadingDoc(false);
+    }
+  };
+
   const handleAddVendor = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
@@ -2166,6 +2317,41 @@ export default function App() {
       let noticeFileUrl = '';
       let noticeFileType: Vendor['noticeFileType'] = 'unknown';
       let noticeFileName = '';
+
+      let businessCertUrl = '';
+      let businessCertFileName = '';
+      let businessCertFileType: 'image' | 'pdf' | 'unknown' = 'unknown';
+
+      let bankbookUrl = '';
+      let bankbookFileName = '';
+      let bankbookFileType: 'image' | 'pdf' | 'unknown' = 'unknown';
+
+      let promissoryNoteUrl = '';
+      let promissoryNoteFileName = '';
+      let promissoryNoteFileType: 'image' | 'pdf' | 'unknown' = 'unknown';
+
+      const tempId = `temp_${Date.now()}`;
+
+      if (addBusinessCertFile) {
+        const res = await uploadVendorDocFile(tempId, 'businessCert', addBusinessCertFile);
+        businessCertUrl = res.url;
+        businessCertFileName = res.fileName;
+        businessCertFileType = res.fileType;
+      }
+
+      if (addBankbookFile) {
+        const res = await uploadVendorDocFile(tempId, 'bankbook', addBankbookFile);
+        bankbookUrl = res.url;
+        bankbookFileName = res.fileName;
+        bankbookFileType = res.fileType;
+      }
+
+      if (addPromissoryNoteFile) {
+        const res = await uploadVendorDocFile(tempId, 'promissoryNote', addPromissoryNoteFile);
+        promissoryNoteUrl = res.url;
+        promissoryNoteFileName = res.fileName;
+        promissoryNoteFileType = res.fileType;
+      }
 
       if (priceTableFile) {
         // File size limit check (e.g., 10MB)
@@ -2232,6 +2418,19 @@ export default function App() {
         priceTableUrl,
         priceTableFileType,
         priceTableFileName,
+        // 필수 증빙 서류
+        businessCertUrl,
+        businessCertFileName,
+        businessCertFileType,
+        businessCertUpdatedAt: businessCertUrl ? serverTimestamp() : null,
+        bankbookUrl,
+        bankbookFileName,
+        bankbookFileType,
+        bankbookUpdatedAt: bankbookUrl ? serverTimestamp() : null,
+        promissoryNoteUrl,
+        promissoryNoteFileName,
+        promissoryNoteFileType,
+        promissoryNoteUpdatedAt: promissoryNoteUrl ? serverTimestamp() : null,
         order: vendors.length,
         deleted: false,
         createdAt: serverTimestamp(),
@@ -2242,6 +2441,9 @@ export default function App() {
       setIsAddingVendor(false);
       setPriceTableFile(null);
       setNoticeFile(null);
+      setAddBusinessCertFile(null);
+      setAddBankbookFile(null);
+      setAddPromissoryNoteFile(null);
     } catch (error: any) {
       console.error("Error adding vendor:", error);
       let msg = error.message || "업체 추가에 실패했습니다.";
@@ -2271,6 +2473,45 @@ export default function App() {
       let noticeFileUrl = selectedVendor.noticeFileUrl || '';
       let noticeFileType = selectedVendor.noticeFileType || 'unknown';
       let noticeFileName = selectedVendor.noticeFileName || '';
+
+      let businessCertUrl = selectedVendor.businessCertUrl || '';
+      let businessCertFileName = selectedVendor.businessCertFileName || '';
+      let businessCertFileType = selectedVendor.businessCertFileType || 'unknown';
+      let businessCertUpdatedAt = selectedVendor.businessCertUpdatedAt || null;
+
+      let bankbookUrl = selectedVendor.bankbookUrl || '';
+      let bankbookFileName = selectedVendor.bankbookFileName || '';
+      let bankbookFileType = selectedVendor.bankbookFileType || 'unknown';
+      let bankbookUpdatedAt = selectedVendor.bankbookUpdatedAt || null;
+
+      let promissoryNoteUrl = selectedVendor.promissoryNoteUrl || '';
+      let promissoryNoteFileName = selectedVendor.promissoryNoteFileName || '';
+      let promissoryNoteFileType = selectedVendor.promissoryNoteFileType || 'unknown';
+      let promissoryNoteUpdatedAt = selectedVendor.promissoryNoteUpdatedAt || null;
+
+      if (editBusinessCertFile) {
+        const res = await uploadVendorDocFile(selectedVendor.id, 'businessCert', editBusinessCertFile);
+        businessCertUrl = res.url;
+        businessCertFileName = res.fileName;
+        businessCertFileType = res.fileType;
+        businessCertUpdatedAt = serverTimestamp();
+      }
+
+      if (editBankbookFile) {
+        const res = await uploadVendorDocFile(selectedVendor.id, 'bankbook', editBankbookFile);
+        bankbookUrl = res.url;
+        bankbookFileName = res.fileName;
+        bankbookFileType = res.fileType;
+        bankbookUpdatedAt = serverTimestamp();
+      }
+
+      if (editPromissoryNoteFile) {
+        const res = await uploadVendorDocFile(selectedVendor.id, 'promissoryNote', editPromissoryNoteFile);
+        promissoryNoteUrl = res.url;
+        promissoryNoteFileName = res.fileName;
+        promissoryNoteFileType = res.fileType;
+        promissoryNoteUpdatedAt = serverTimestamp();
+      }
 
       if (priceTableFile) {
         // File size limit check (e.g., 10MB)
@@ -2335,14 +2576,30 @@ export default function App() {
         priceTableUrl,
         priceTableFileType,
         priceTableFileName,
+        businessCertUrl,
+        businessCertFileName,
+        businessCertFileType,
+        businessCertUpdatedAt,
+        bankbookUrl,
+        bankbookFileName,
+        bankbookFileType,
+        bankbookUpdatedAt,
+        promissoryNoteUrl,
+        promissoryNoteFileName,
+        promissoryNoteFileType,
+        promissoryNoteUpdatedAt,
         updatedAt: serverTimestamp()
       };
 
       await updateDoc(doc(db, 'vendors', selectedVendor.id), updatedData);
       setSelectedVendor(prev => prev ? { ...prev, ...updatedData } : null);
+      setVendors(prev => prev.map(v => v.id === selectedVendor.id ? { ...v, ...updatedData } : v));
       setIsEditingVendorInfo(false);
       setPriceTableFile(null);
       setNoticeFile(null);
+      setEditBusinessCertFile(null);
+      setEditBankbookFile(null);
+      setEditPromissoryNoteFile(null);
       alert('업체 정보가 수정되었습니다.');
     } catch (error: any) {
       console.error("Error updating vendor:", error);
@@ -2771,6 +3028,14 @@ export default function App() {
           </nav>
         </div>
         <div className="flex items-center gap-4">
+          <button 
+            onClick={() => setIsVendorGuideOpen(true)}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 bg-indigo-50 border border-indigo-100 hover:bg-indigo-100 text-indigo-700 text-xs font-black rounded-full shadow-sm transition-all"
+            title="업체모드(납품업체) 사용방법 가이드를 봅니다."
+          >
+            <HelpCircle className="h-3.5 w-3.5 text-indigo-500" />
+            <span>업체모드 사용방법</span>
+          </button>
           {isAdminMode && pendingUpdates.filter(u => u.status === 'pending').length > 0 && (
             <button 
               onClick={() => setIsApprovalsModalOpen(true)}
@@ -3669,10 +3934,142 @@ export default function App() {
                         ))}
                       </div>
                     )}
+
+                    {/* 필수 증빙 서류 현황 스트립 */}
+                    {selectedVendor && (
+                      <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100">
+                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-tight flex items-center gap-1 shrink-0">
+                          <Paperclip className="h-3 w-3 text-slate-400" />
+                          필수 증빙서류:
+                        </span>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          {/* 사업자등록증 */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (selectedVendor.businessCertUrl) {
+                                setPreviewDoc({
+                                  title: `${selectedVendor.name} - 사업자등록증`,
+                                  url: selectedVendor.businessCertUrl,
+                                  fileType: selectedVendor.businessCertFileType || 'unknown',
+                                  fileName: selectedVendor.businessCertFileName || '사업자등록증',
+                                  docKey: 'businessCert'
+                                });
+                              } else {
+                                setIsVendorDocsModalOpen(true);
+                              }
+                            }}
+                            className={`px-2.5 py-1 rounded-lg text-[10px] font-bold flex items-center gap-1.5 transition-all active:scale-95 ${
+                              selectedVendor.businessCertUrl 
+                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 shadow-xs' 
+                                : 'bg-slate-50 text-slate-400 border border-slate-200 hover:bg-slate-100 hover:text-slate-600'
+                            }`}
+                            title={selectedVendor.businessCertUrl ? `사업자등록증 보기 (${selectedVendor.businessCertFileName || '첨부됨'})` : '사업자등록증 등록하기'}
+                          >
+                            {selectedVendor.businessCertUrl ? (
+                              <CheckCircle2 className="h-3 w-3 text-emerald-600" />
+                            ) : (
+                              <span className="w-1.5 h-1.5 rounded-full bg-slate-300" />
+                            )}
+                            <span>사업자등록증</span>
+                            <span className={`text-[9px] font-extrabold ${selectedVendor.businessCertUrl ? 'text-emerald-600' : 'text-slate-400'}`}>
+                              {selectedVendor.businessCertUrl ? '완료' : '미첨부'}
+                            </span>
+                          </button>
+
+                          {/* 통장사본 */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (selectedVendor.bankbookUrl) {
+                                setPreviewDoc({
+                                  title: `${selectedVendor.name} - 통장사본`,
+                                  url: selectedVendor.bankbookUrl,
+                                  fileType: selectedVendor.bankbookFileType || 'unknown',
+                                  fileName: selectedVendor.bankbookFileName || '통장사본',
+                                  docKey: 'bankbook'
+                                });
+                              } else {
+                                setIsVendorDocsModalOpen(true);
+                              }
+                            }}
+                            className={`px-2.5 py-1 rounded-lg text-[10px] font-bold flex items-center gap-1.5 transition-all active:scale-95 ${
+                              selectedVendor.bankbookUrl 
+                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 shadow-xs' 
+                                : 'bg-slate-50 text-slate-400 border border-slate-200 hover:bg-slate-100 hover:text-slate-600'
+                            }`}
+                            title={selectedVendor.bankbookUrl ? `통장사본 보기 (${selectedVendor.bankbookFileName || '첨부됨'})` : '통장사본 등록하기'}
+                          >
+                            {selectedVendor.bankbookUrl ? (
+                              <CheckCircle2 className="h-3 w-3 text-emerald-600" />
+                            ) : (
+                              <span className="w-1.5 h-1.5 rounded-full bg-slate-300" />
+                            )}
+                            <span>통장사본</span>
+                            <span className={`text-[9px] font-extrabold ${selectedVendor.bankbookUrl ? 'text-emerald-600' : 'text-slate-400'}`}>
+                              {selectedVendor.bankbookUrl ? '완료' : '미첨부'}
+                            </span>
+                          </button>
+
+                          {/* 전자어음약정확인서 */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (selectedVendor.promissoryNoteUrl) {
+                                setPreviewDoc({
+                                  title: `${selectedVendor.name} - 전자어음약정확인서`,
+                                  url: selectedVendor.promissoryNoteUrl,
+                                  fileType: selectedVendor.promissoryNoteFileType || 'unknown',
+                                  fileName: selectedVendor.promissoryNoteFileName || '전자어음약정확인서',
+                                  docKey: 'promissoryNote'
+                                });
+                              } else {
+                                setIsVendorDocsModalOpen(true);
+                              }
+                            }}
+                            className={`px-2.5 py-1 rounded-lg text-[10px] font-bold flex items-center gap-1.5 transition-all active:scale-95 ${
+                              selectedVendor.promissoryNoteUrl 
+                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 shadow-xs' 
+                                : 'bg-slate-50 text-slate-400 border border-slate-200 hover:bg-slate-100 hover:text-slate-600'
+                            }`}
+                            title={selectedVendor.promissoryNoteUrl ? `전자어음약정확인서 보기 (${selectedVendor.promissoryNoteFileName || '첨부됨'})` : '전자어음약정확인서 등록하기'}
+                          >
+                            {selectedVendor.promissoryNoteUrl ? (
+                              <CheckCircle2 className="h-3 w-3 text-emerald-600" />
+                            ) : (
+                              <span className="w-1.5 h-1.5 rounded-full bg-slate-300" />
+                            )}
+                            <span>전자어음약정서</span>
+                            <span className={`text-[9px] font-extrabold ${selectedVendor.promissoryNoteUrl ? 'text-emerald-600' : 'text-slate-400'}`}>
+                              {selectedVendor.promissoryNoteUrl ? '완료' : '미첨부'}
+                            </span>
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {selectedVendor && (
                     <div className="flex items-center gap-3">
+                      {/* 거래처 서류 관리 버튼 */}
+                      <button 
+                        onClick={() => setIsVendorDocsModalOpen(true)}
+                        className="flex items-center gap-2 px-4 py-2.5 bg-emerald-50 text-emerald-800 rounded-xl text-xs font-bold hover:bg-emerald-100 transition-all border border-emerald-200 active:scale-95 shadow-sm"
+                        title="거래처 필수 증빙 서류 관리 (사업자등록증, 통장사본, 전자어음약정확인서)"
+                      >
+                        <FileCheck className="h-3.5 w-3.5 text-emerald-600" />
+                        <span>거래처 서류 관리</span>
+                        <span className={`px-1.5 py-0.5 rounded-md text-[10px] font-black ${
+                          ([selectedVendor.businessCertUrl, selectedVendor.bankbookUrl, selectedVendor.promissoryNoteUrl].filter(Boolean).length === 3)
+                            ? 'bg-emerald-600 text-white'
+                            : ([selectedVendor.businessCertUrl, selectedVendor.bankbookUrl, selectedVendor.promissoryNoteUrl].filter(Boolean).length > 0)
+                            ? 'bg-amber-500 text-white'
+                            : 'bg-slate-200 text-slate-600'
+                        }`}>
+                          {[selectedVendor.businessCertUrl, selectedVendor.bankbookUrl, selectedVendor.promissoryNoteUrl].filter(Boolean).length}/3
+                        </span>
+                      </button>
+
                       {selectedVendor.priceTableUrl && (
                         <button 
                           onClick={() => setIsViewingPriceTable(true)}
@@ -4975,6 +5372,165 @@ export default function App() {
                     </label>
                   </div>
                 </div>
+
+                {/* 필수 증빙 서류 (사업자등록증, 통장사본, 전자어음약정확인서) */}
+                <div className="col-span-full space-y-3 p-5 rounded-2xl bg-emerald-50/40 border-2 border-emerald-100">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="p-1.5 bg-emerald-600 text-white rounded-lg">
+                        <FileCheck className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-black text-emerald-950 uppercase tracking-tight">거래처 필수 증빙 서류 첨부</h4>
+                        <p className="text-[10px] text-emerald-700/80">사업자등록증, 통장사본, 전자어음약정확인서 (PDF 또는 이미지, 최대 15MB)</p>
+                      </div>
+                    </div>
+                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100/60 px-2 py-0.5 rounded-full">
+                      선택사항 (등록 후에도 추가 가능)
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1">
+                    {/* 사업자등록증 */}
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
+                        <Receipt className="h-3.5 w-3.5 text-emerald-600" />
+                        사업자등록증
+                      </label>
+                      <input 
+                        type="file" 
+                        accept=".pdf,image/*" 
+                        id="add-doc-business-cert"
+                        className="hidden" 
+                        onChange={(e) => setAddBusinessCertFile(e.target.files?.[0] || null)}
+                      />
+                      <label 
+                        htmlFor="add-doc-business-cert"
+                        className={`flex items-center gap-2.5 p-3 rounded-xl border-2 border-dashed cursor-pointer transition-all ${
+                          addBusinessCertFile 
+                            ? 'border-emerald-500 bg-emerald-50/80 text-emerald-800' 
+                            : 'border-slate-200 bg-white hover:border-emerald-300 text-slate-500'
+                        }`}
+                      >
+                        <div className={`p-2 rounded-lg shrink-0 ${addBusinessCertFile ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-400'}`}>
+                          {addBusinessCertFile ? <CheckCircle2 className="h-4 w-4" /> : <Upload className="h-4 w-4" />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-bold truncate">
+                            {addBusinessCertFile ? addBusinessCertFile.name : '파일 선택'}
+                          </p>
+                          <p className="text-[9px] text-slate-400">PDF, JPG, PNG</p>
+                        </div>
+                        {addBusinessCertFile && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setAddBusinessCertFile(null);
+                            }}
+                            className="p-1 hover:bg-emerald-200 text-emerald-700 rounded-md"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </label>
+                    </div>
+
+                    {/* 통장사본 */}
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
+                        <CreditCard className="h-3.5 w-3.5 text-emerald-600" />
+                        통장사본
+                      </label>
+                      <input 
+                        type="file" 
+                        accept=".pdf,image/*" 
+                        id="add-doc-bankbook"
+                        className="hidden" 
+                        onChange={(e) => setAddBankbookFile(e.target.files?.[0] || null)}
+                      />
+                      <label 
+                        htmlFor="add-doc-bankbook"
+                        className={`flex items-center gap-2.5 p-3 rounded-xl border-2 border-dashed cursor-pointer transition-all ${
+                          addBankbookFile 
+                            ? 'border-emerald-500 bg-emerald-50/80 text-emerald-800' 
+                            : 'border-slate-200 bg-white hover:border-emerald-300 text-slate-500'
+                        }`}
+                      >
+                        <div className={`p-2 rounded-lg shrink-0 ${addBankbookFile ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-400'}`}>
+                          {addBankbookFile ? <CheckCircle2 className="h-4 w-4" /> : <Upload className="h-4 w-4" />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-bold truncate">
+                            {addBankbookFile ? addBankbookFile.name : '파일 선택'}
+                          </p>
+                          <p className="text-[9px] text-slate-400">PDF, JPG, PNG</p>
+                        </div>
+                        {addBankbookFile && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setAddBankbookFile(null);
+                            }}
+                            className="p-1 hover:bg-emerald-200 text-emerald-700 rounded-md"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </label>
+                    </div>
+
+                    {/* 전자어음약정확인서 */}
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
+                        <FileText className="h-3.5 w-3.5 text-emerald-600" />
+                        전자어음약정확인서
+                      </label>
+                      <input 
+                        type="file" 
+                        accept=".pdf,image/*" 
+                        id="add-doc-promissory-note"
+                        className="hidden" 
+                        onChange={(e) => setAddPromissoryNoteFile(e.target.files?.[0] || null)}
+                      />
+                      <label 
+                        htmlFor="add-doc-promissory-note"
+                        className={`flex items-center gap-2.5 p-3 rounded-xl border-2 border-dashed cursor-pointer transition-all ${
+                          addPromissoryNoteFile 
+                            ? 'border-emerald-500 bg-emerald-50/80 text-emerald-800' 
+                            : 'border-slate-200 bg-white hover:border-emerald-300 text-slate-500'
+                        }`}
+                      >
+                        <div className={`p-2 rounded-lg shrink-0 ${addPromissoryNoteFile ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-400'}`}>
+                          {addPromissoryNoteFile ? <CheckCircle2 className="h-4 w-4" /> : <Upload className="h-4 w-4" />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-bold truncate">
+                            {addPromissoryNoteFile ? addPromissoryNoteFile.name : '파일 선택'}
+                          </p>
+                          <p className="text-[9px] text-slate-400">PDF, JPG, PNG</p>
+                        </div>
+                        {addPromissoryNoteFile && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setAddPromissoryNoteFile(null);
+                            }}
+                            className="p-1 hover:bg-emerald-200 text-emerald-700 rounded-md"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </label>
+                    </div>
+                  </div>
+                </div>
+
                 <div className="col-span-full py-4 border-y border-slate-100 bg-indigo-50/20 px-4 -mx-4">
                    <label className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-indigo-600 mb-2">
                     <Lock className="h-3 w-3" />
@@ -5592,6 +6148,206 @@ export default function App() {
                   <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">공식 이메일 *</label>
                   <input name="email" type="email" required defaultValue={selectedVendor.email} className="w-full rounded-2xl border-2 border-slate-100 bg-slate-50 p-4 font-bold text-slate-800 focus:border-indigo-500 focus:bg-white focus:outline-none transition-all" />
                 </div>
+
+                {/* 필수 증빙 서류 (사업자등록증, 통장사본, 전자어음약정확인서) */}
+                <div className="col-span-full space-y-3 p-5 rounded-2xl bg-emerald-50/40 border-2 border-emerald-100">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="p-1.5 bg-emerald-600 text-white rounded-lg">
+                        <FileCheck className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-black text-emerald-950 uppercase tracking-tight">거래처 필수 증빙 서류</h4>
+                        <p className="text-[10px] text-emerald-700/80">파일 선택 시 저장 버튼을 누르면 새 파일로 자동 교체됩니다. (PDF 또는 이미지, 최대 15MB)</p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsEditingVendorInfo(false);
+                        setIsVendorDocsModalOpen(true);
+                      }}
+                      className="text-[10px] font-bold text-emerald-700 bg-emerald-100 hover:bg-emerald-200 px-2.5 py-1 rounded-lg transition-colors flex items-center gap-1"
+                    >
+                      <Eye className="h-3 w-3" />
+                      서류 전용 관리창 열기
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1">
+                    {/* 사업자등록증 */}
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
+                          <Receipt className="h-3.5 w-3.5 text-emerald-600" />
+                          사업자등록증
+                        </label>
+                        {selectedVendor.businessCertUrl && (
+                          <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                            기존등록됨
+                          </span>
+                        )}
+                      </div>
+                      <input 
+                        type="file" 
+                        accept=".pdf,image/*" 
+                        id="edit-doc-business-cert"
+                        className="hidden" 
+                        onChange={(e) => setEditBusinessCertFile(e.target.files?.[0] || null)}
+                      />
+                      <label 
+                        htmlFor="edit-doc-business-cert"
+                        className={`flex items-center gap-2.5 p-3 rounded-xl border-2 border-dashed cursor-pointer transition-all ${
+                          editBusinessCertFile 
+                            ? 'border-emerald-500 bg-emerald-50/80 text-emerald-800' 
+                            : selectedVendor.businessCertUrl
+                            ? 'border-emerald-200 bg-white hover:border-emerald-400 text-slate-700'
+                            : 'border-slate-200 bg-white hover:border-emerald-300 text-slate-500'
+                        }`}
+                      >
+                        <div className={`p-2 rounded-lg shrink-0 ${editBusinessCertFile ? 'bg-emerald-600 text-white' : selectedVendor.businessCertUrl ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-400'}`}>
+                          {editBusinessCertFile ? <CheckCircle2 className="h-4 w-4" /> : selectedVendor.businessCertUrl ? <FileCheck className="h-4 w-4" /> : <Upload className="h-4 w-4" />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-bold truncate">
+                            {editBusinessCertFile ? editBusinessCertFile.name : (selectedVendor.businessCertFileName || '파일 교체/등록')}
+                          </p>
+                          <p className="text-[9px] text-slate-400">
+                            {editBusinessCertFile ? '새 파일로 교체 대기' : selectedVendor.businessCertUrl ? '클릭하여 새 파일로 교체' : 'PDF, JPG, PNG'}
+                          </p>
+                        </div>
+                        {editBusinessCertFile && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setEditBusinessCertFile(null);
+                            }}
+                            className="p-1 hover:bg-emerald-200 text-emerald-700 rounded-md"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </label>
+                    </div>
+
+                    {/* 통장사본 */}
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
+                          <CreditCard className="h-3.5 w-3.5 text-emerald-600" />
+                          통장사본
+                        </label>
+                        {selectedVendor.bankbookUrl && (
+                          <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                            기존등록됨
+                          </span>
+                        )}
+                      </div>
+                      <input 
+                        type="file" 
+                        accept=".pdf,image/*" 
+                        id="edit-doc-bankbook"
+                        className="hidden" 
+                        onChange={(e) => setEditBankbookFile(e.target.files?.[0] || null)}
+                      />
+                      <label 
+                        htmlFor="edit-doc-bankbook"
+                        className={`flex items-center gap-2.5 p-3 rounded-xl border-2 border-dashed cursor-pointer transition-all ${
+                          editBankbookFile 
+                            ? 'border-emerald-500 bg-emerald-50/80 text-emerald-800' 
+                            : selectedVendor.bankbookUrl
+                            ? 'border-emerald-200 bg-white hover:border-emerald-400 text-slate-700'
+                            : 'border-slate-200 bg-white hover:border-emerald-300 text-slate-500'
+                        }`}
+                      >
+                        <div className={`p-2 rounded-lg shrink-0 ${editBankbookFile ? 'bg-emerald-600 text-white' : selectedVendor.bankbookUrl ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-400'}`}>
+                          {editBankbookFile ? <CheckCircle2 className="h-4 w-4" /> : selectedVendor.bankbookUrl ? <FileCheck className="h-4 w-4" /> : <Upload className="h-4 w-4" />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-bold truncate">
+                            {editBankbookFile ? editBankbookFile.name : (selectedVendor.bankbookFileName || '파일 교체/등록')}
+                          </p>
+                          <p className="text-[9px] text-slate-400">
+                            {editBankbookFile ? '새 파일로 교체 대기' : selectedVendor.bankbookUrl ? '클릭하여 새 파일로 교체' : 'PDF, JPG, PNG'}
+                          </p>
+                        </div>
+                        {editBankbookFile && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setEditBankbookFile(null);
+                            }}
+                            className="p-1 hover:bg-emerald-200 text-emerald-700 rounded-md"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </label>
+                    </div>
+
+                    {/* 전자어음약정확인서 */}
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
+                          <FileText className="h-3.5 w-3.5 text-emerald-600" />
+                          전자어음약정확인서
+                        </label>
+                        {selectedVendor.promissoryNoteUrl && (
+                          <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                            기존등록됨
+                          </span>
+                        )}
+                      </div>
+                      <input 
+                        type="file" 
+                        accept=".pdf,image/*" 
+                        id="edit-doc-promissory-note"
+                        className="hidden" 
+                        onChange={(e) => setEditPromissoryNoteFile(e.target.files?.[0] || null)}
+                      />
+                      <label 
+                        htmlFor="edit-doc-promissory-note"
+                        className={`flex items-center gap-2.5 p-3 rounded-xl border-2 border-dashed cursor-pointer transition-all ${
+                          editPromissoryNoteFile 
+                            ? 'border-emerald-500 bg-emerald-50/80 text-emerald-800' 
+                            : selectedVendor.promissoryNoteUrl
+                            ? 'border-emerald-200 bg-white hover:border-emerald-400 text-slate-700'
+                            : 'border-slate-200 bg-white hover:border-emerald-300 text-slate-500'
+                        }`}
+                      >
+                        <div className={`p-2 rounded-lg shrink-0 ${editPromissoryNoteFile ? 'bg-emerald-600 text-white' : selectedVendor.promissoryNoteUrl ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-400'}`}>
+                          {editPromissoryNoteFile ? <CheckCircle2 className="h-4 w-4" /> : selectedVendor.promissoryNoteUrl ? <FileCheck className="h-4 w-4" /> : <Upload className="h-4 w-4" />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-bold truncate">
+                            {editPromissoryNoteFile ? editPromissoryNoteFile.name : (selectedVendor.promissoryNoteFileName || '파일 교체/등록')}
+                          </p>
+                          <p className="text-[9px] text-slate-400">
+                            {editPromissoryNoteFile ? '새 파일로 교체 대기' : selectedVendor.promissoryNoteUrl ? '클릭하여 새 파일로 교체' : 'PDF, JPG, PNG'}
+                          </p>
+                        </div>
+                        {editPromissoryNoteFile && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setEditPromissoryNoteFile(null);
+                            }}
+                            className="p-1 hover:bg-emerald-200 text-emerald-700 rounded-md"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </label>
+                    </div>
+                  </div>
+                </div>
+
                 <div className="col-span-full grid grid-cols-1 md:grid-cols-2 gap-4">
                   <label className="flex items-center gap-3 cursor-pointer p-4 bg-slate-50 rounded-2xl border-2 border-slate-100 hover:bg-white hover:border-indigo-200 transition-all">
                     <input type="checkbox" name="useRounding" defaultChecked={selectedVendor.roundingMethod === 'round'} className="w-5 h-5 rounded-lg border-2 border-slate-300 text-indigo-600 focus:ring-indigo-500" />
@@ -6121,171 +6877,331 @@ export default function App() {
         {editingPriceId && (
           <Modal 
             key="modal-edit-price" 
-            title="품목 정보 수정" 
+            title="품목 상세 및 이력" 
             onClose={() => setEditingPriceId(null)}
           >
             {(() => {
               const item = priceItems.find(p => p.id === editingPriceId);
               if (!item) return <p className="text-slate-400 p-8 text-center">항목을 찾을 수 없습니다.</p>;
               
+              const formatDate = (dateVal: any) => {
+                if (!dateVal) return '-';
+                try {
+                  const d = dateVal.toDate ? dateVal.toDate() : new Date(dateVal);
+                  const year = d.getFullYear();
+                  const month = String(d.getMonth() + 1).padStart(2, '0');
+                  const day = String(d.getDate()).padStart(2, '0');
+                  const hours = String(d.getHours()).padStart(2, '0');
+                  const minutes = String(d.getMinutes()).padStart(2, '0');
+                  return `${year}-${month}-${day} ${hours}:${minutes}`;
+                } catch {
+                  return String(dateVal);
+                }
+              };
+
+              const historyList = item.priceHistory || [];
+              const historyRows = [];
+              for (let i = 0; i < historyList.length; i++) {
+                const currentEntry = historyList[i];
+                const nextEntry = historyList[i + 1];
+                const priceAfter = currentEntry.price;
+                const priceBefore = nextEntry ? nextEntry.price : null;
+                
+                let diff = null;
+                let diffPercent = null;
+                if (priceBefore !== null) {
+                  diff = priceAfter - priceBefore;
+                  diffPercent = priceBefore > 0 ? (diff / priceBefore) * 100 : 0;
+                }
+                
+                historyRows.push({
+                  date: currentEntry.date,
+                  priceBefore,
+                  priceAfter,
+                  diff,
+                  diffPercent
+                });
+              }
+              
               return (
-                <form 
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    const formData = new FormData(e.currentTarget);
-                    handleUpdatePriceItem(editingPriceId, {
-                      itemName: formData.get('itemName') as string,
-                      itemCode: formData.get('itemCode') as string,
-                      category: formData.get('category') as string,
-                      spec: formData.get('spec') as string,
-                      unit: formData.get('unit') as string,
-                      costPrice: Number(String(formData.get('costPrice') || '0').replace(/,/g, '')),
-                      negoRate: Number(String(formData.get('negoRate') || '0').replace(/,/g, '')),
-                      negoType: formData.get('negoType') as 'percent' | 'sts_pipe',
-                      weight: Number(String(formData.get('weight') || '0').replace(/,/g, '')),
-                      targetPrice: formData.get('targetPrice') ? Number(String(formData.get('targetPrice')).replace(/,/g, '')) : null,
-                      useRounding: formData.get('useRounding') === 'on',
-                      maker: formData.get('maker') as string,
-                      remarks: formData.get('remarks') as string,
-                    });
-                  }}
-                  className="space-y-6"
-                >
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="space-y-2 col-span-full">
-                      <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">품목명 *</label>
-                      <input name="itemName" defaultValue={item.itemName} required className="w-full rounded-xl border-2 border-slate-100 bg-slate-50 p-4 font-bold focus:border-indigo-500 outline-none" />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">품번</label>
-                      <input name="itemCode" defaultValue={item.itemCode} className="w-full rounded-xl border-2 border-slate-100 bg-slate-50 p-4 font-bold focus:border-indigo-500 outline-none" />
-                    </div>
-                    <div className="space-y-2">
-                       <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">카테고리</label>
-                       <select name="category" defaultValue={item.category} className="w-full rounded-xl border-2 border-slate-100 bg-slate-50 p-4 font-bold focus:border-indigo-500 outline-none appearance-none">
-                         <option value="">선택 안함</option>
-                         {categories.filter(c => c !== '전체').map(cat => <option key={`opt-edit-item-${cat}`} value={cat}>{cat}</option>)}
-                       </select>
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">규격</label>
-                      <input name="spec" defaultValue={item.spec} className="w-full rounded-xl border-2 border-slate-100 bg-slate-50 p-4 font-bold focus:border-indigo-500 outline-none" />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">단위</label>
-                      <input name="unit" defaultValue={item.unit} className="w-full rounded-xl border-2 border-slate-100 bg-slate-50 p-4 font-bold focus:border-indigo-500 outline-none" />
-                    </div>
-                    
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">협가 / 단중 *</label>
-                      <input 
-                        name="costPrice" 
-                        type="text" 
-                        inputMode="decimal"
-                        defaultValue={item.costPrice?.toLocaleString()} 
-                        required 
-                        onChange={(e) => {
-                          const val = e.target.value.replace(/,/g, '');
-                          if (val === '' || !isNaN(Number(val))) {
-                            e.target.value = val === '' ? '' : Number(val).toLocaleString();
-                          } else {
-                            e.target.value = e.target.value.replace(/[^0-9.]/g, '');
-                          }
-                        }}
-                        className="w-full rounded-xl border-2 border-indigo-50 bg-indigo-50/10 p-4 font-bold text-indigo-700 focus:border-indigo-500 outline-none" 
-                      />
-                      <p className="text-[9px] text-slate-400">※ STS 방식일 경우 단중을, 아닐 경우 협가(원)를 입력하세요.</p>
-                    </div>
-                    
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-600">네고 상세 방식 & 값 *</label>
-                      <div className="flex gap-2">
-                        <select name="negoType" defaultValue={item.negoType || 'percent'} className="rounded-xl border-2 border-indigo-100 bg-indigo-50/30 p-4 font-bold text-indigo-700 outline-none">
-                          <option value="percent">네고율 (%)</option>
-                          <option value="sts_pipe">STS (KG단가)</option>
-                        </select>
-                        <input 
-                          name="negoRate" 
-                          type="text" 
-                          inputMode="decimal"
-                          defaultValue={item.negoRate?.toLocaleString()} 
-                          required 
-                          onChange={(e) => {
-                            const val = e.target.value.replace(/,/g, '');
-                            if (val === '' || !isNaN(Number(val))) {
-                              e.target.value = val === '' ? '' : Number(val).toLocaleString();
-                            } else {
-                              e.target.value = e.target.value.replace(/[^0-9.]/g, '');
-                            }
-                          }}
-                          className="flex-1 rounded-xl border-2 border-indigo-100 bg-indigo-50/30 p-4 font-bold text-indigo-700 focus:border-indigo-500 outline-none" 
-                        />
+                <div className="space-y-6">
+                  {/* Tab Selector */}
+                  <div className="flex border-b border-slate-100 pb-1 mb-4 select-none">
+                    <button
+                      type="button"
+                      onClick={() => setEditModalTab('info')}
+                      className={`flex-1 py-3 text-center text-xs font-bold border-b-2 transition-all ${
+                        editModalTab === 'info' 
+                          ? 'border-indigo-600 text-indigo-600 font-extrabold' 
+                          : 'border-transparent text-slate-400 hover:text-slate-600'
+                      }`}
+                    >
+                      기본 정보 및 수정
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditModalTab('history')}
+                      className={`flex-1 py-3 text-center text-xs font-bold border-b-2 transition-all flex items-center justify-center gap-1.5 ${
+                        editModalTab === 'history' 
+                          ? 'border-indigo-600 text-indigo-600 font-extrabold' 
+                          : 'border-transparent text-slate-400 hover:text-slate-600'
+                      }`}
+                    >
+                      <History className="h-3.5 w-3.5" />
+                      가격 변동 이력
+                    </button>
+                  </div>
+
+                  {editModalTab === 'info' ? (
+                    <form 
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        const formData = new FormData(e.currentTarget);
+                        handleUpdatePriceItem(editingPriceId, {
+                          itemName: formData.get('itemName') as string,
+                          itemCode: formData.get('itemCode') as string,
+                          category: formData.get('category') as string,
+                          spec: formData.get('spec') as string,
+                          unit: formData.get('unit') as string,
+                          costPrice: Number(String(formData.get('costPrice') || '0').replace(/,/g, '')),
+                          negoRate: Number(String(formData.get('negoRate') || '0').replace(/,/g, '')),
+                          negoType: formData.get('negoType') as 'percent' | 'sts_pipe',
+                          weight: Number(String(formData.get('weight') || '0').replace(/,/g, '')),
+                          targetPrice: formData.get('targetPrice') ? Number(String(formData.get('targetPrice')).replace(/,/g, '')) : null,
+                          useRounding: formData.get('useRounding') === 'on',
+                          maker: formData.get('maker') as string,
+                          remarks: formData.get('remarks') as string,
+                        });
+                      }}
+                      className="space-y-6"
+                    >
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="space-y-2 col-span-full">
+                          <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">품목명 *</label>
+                          <input name="itemName" defaultValue={item.itemName} required className="w-full rounded-xl border-2 border-slate-100 bg-slate-50 p-4 font-bold focus:border-indigo-500 outline-none" />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">품번</label>
+                          <input name="itemCode" defaultValue={item.itemCode} className="w-full rounded-xl border-2 border-slate-100 bg-slate-50 p-4 font-bold focus:border-indigo-500 outline-none" />
+                        </div>
+                        <div className="space-y-2">
+                           <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">카테고리</label>
+                           <select name="category" defaultValue={item.category} className="w-full rounded-xl border-2 border-slate-100 bg-slate-50 p-4 font-bold focus:border-indigo-500 outline-none appearance-none">
+                             <option value="">선택 안함</option>
+                             {categories.filter(c => c !== '전체').map(cat => <option key={`opt-edit-item-${cat}`} value={cat}>{cat}</option>)}
+                           </select>
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">규격</label>
+                          <input name="spec" defaultValue={item.spec} className="w-full rounded-xl border-2 border-slate-100 bg-slate-50 p-4 font-bold focus:border-indigo-500 outline-none" />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">단위</label>
+                          <input name="unit" defaultValue={item.unit} className="w-full rounded-xl border-2 border-slate-100 bg-slate-50 p-4 font-bold focus:border-indigo-500 outline-none" />
+                        </div>
+                        
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">협가 / 단중 *</label>
+                          <input 
+                            name="costPrice" 
+                            type="text" 
+                            inputMode="decimal"
+                            defaultValue={item.costPrice?.toLocaleString()} 
+                            required 
+                            onChange={(e) => {
+                              const val = e.target.value.replace(/,/g, '');
+                              if (val === '' || !isNaN(Number(val))) {
+                                e.target.value = val === '' ? '' : Number(val).toLocaleString();
+                              } else {
+                                e.target.value = e.target.value.replace(/[^0-9.]/g, '');
+                              }
+                            }}
+                            className="w-full rounded-xl border-2 border-indigo-50 bg-indigo-50/10 p-4 font-bold text-indigo-700 focus:border-indigo-500 outline-none" 
+                          />
+                          <p className="text-[9px] text-slate-400">※ STS 방식일 경우 단중을, 아닐 경우 협가(원)를 입력하세요.</p>
+                        </div>
+                        
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-600">네고 상세 방식 & 값 *</label>
+                          <div className="flex gap-2">
+                            <select name="negoType" defaultValue={item.negoType || 'percent'} className="rounded-xl border-2 border-indigo-100 bg-indigo-50/30 p-4 font-bold text-indigo-700 outline-none">
+                              <option value="percent">네고율 (%)</option>
+                              <option value="sts_pipe">STS (KG단가)</option>
+                            </select>
+                            <input 
+                              name="negoRate" 
+                              type="text" 
+                              inputMode="decimal"
+                              defaultValue={item.negoRate?.toLocaleString()} 
+                              required 
+                              onChange={(e) => {
+                                const val = e.target.value.replace(/,/g, '');
+                                if (val === '' || !isNaN(Number(val))) {
+                                  e.target.value = val === '' ? '' : Number(val).toLocaleString();
+                                } else {
+                                  e.target.value = e.target.value.replace(/[^0-9.]/g, '');
+                                }
+                              }}
+                              className="flex-1 rounded-xl border-2 border-indigo-100 bg-indigo-50/30 p-4 font-bold text-indigo-700 focus:border-indigo-500 outline-none" 
+                            />
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">참조 단중 (KG/M)</label>
+                          <input 
+                            name="weight" 
+                            type="text" 
+                            inputMode="decimal"
+                            defaultValue={item.weight?.toLocaleString()} 
+                            onChange={(e) => {
+                              const val = e.target.value.replace(/,/g, '');
+                              if (val === '' || !isNaN(Number(val))) {
+                                e.target.value = val === '' ? '' : Number(val).toLocaleString();
+                              } else {
+                                e.target.value = e.target.value.replace(/[^0-9.]/g, '');
+                              }
+                            }}
+                            className="w-full rounded-xl border-2 border-slate-100 bg-slate-50 p-4 font-medium focus:border-indigo-500 outline-none" 
+                          />
+                        </div>
+
+                        <div className="space-y-2 flex items-center pt-6">
+                          <label className="flex items-center gap-3 cursor-pointer">
+                            <input type="checkbox" name="useRounding" defaultChecked={item.useRounding !== undefined ? item.useRounding : (selectedVendor?.roundingMethod !== 'none')} className="w-5 h-5 rounded border-slate-300 text-indigo-600" />
+                            <span className="text-sm font-bold text-slate-700">10원 단위 반올림 적용</span>
+                          </label>
+                        </div>
+
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">제조사</label>
+                          <input name="maker" defaultValue={item.maker} className="w-full rounded-xl border-2 border-slate-100 bg-slate-50 p-4 font-bold focus:border-indigo-500 outline-none" />
+                        </div>
+                        <div className="space-y-2">
+                           <label className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-600">목표단가 (Target Price)</label>
+                           <div className="relative">
+                             <span className="absolute left-4 top-1/2 -translate-y-1/2 text-lg font-bold text-emerald-200">₩</span>
+                             <input 
+                               name="targetPrice" 
+                               type="text" 
+                               inputMode="decimal"
+                               defaultValue={item.targetPrice?.toLocaleString()} 
+                               onChange={(e) => {
+                                 const val = e.target.value.replace(/,/g, '');
+                                 if (val === '' || !isNaN(Number(val))) {
+                                   e.target.value = val === '' ? '' : Number(val).toLocaleString();
+                                 } else {
+                                   e.target.value = e.target.value.replace(/[^0-9.]/g, '');
+                                 }
+                               }}
+                               className="w-full rounded-xl border-2 border-emerald-100 bg-emerald-50/10 p-4 pl-10 font-black text-emerald-700 focus:border-emerald-500 outline-none transition-all" 
+                               placeholder="알림 임계값 설정"
+                             />
+                           </div>
+                        </div>
+                        <div className="space-y-2 col-span-full">
+                          <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">비고</label>
+                          <textarea name="remarks" defaultValue={item.remarks} rows={2} className="w-full rounded-xl border-2 border-slate-100 bg-slate-50 p-4 font-medium focus:border-indigo-500 outline-none"></textarea>
+                        </div>
+                      </div>
+                      
+                      <div className="flex gap-3 pt-6 border-t border-slate-100">
+                        <button type="button" onClick={() => setEditingPriceId(null)} className="flex-1 p-4 rounded-xl border-2 border-slate-100 font-bold text-slate-400 hover:bg-slate-50 transition-colors">취소</button>
+                        <button type="submit" className="flex-1 p-4 rounded-xl bg-slate-900 text-white font-bold hover:bg-slate-800 shadow-xl shadow-slate-200 transition-all">수정 내역 저장</button>
+                      </div>
+                    </form>
+                  ) : (
+                    <div className="space-y-4 py-2">
+                      <div className="p-4 bg-indigo-50 rounded-2xl border border-indigo-100/50 flex items-start gap-3">
+                        <Info className="h-4 w-4 text-indigo-500 shrink-0 mt-0.5" />
+                        <div className="text-xs text-indigo-800 leading-relaxed">
+                          <p className="font-extrabold">최종 납품단가 변동 알림</p>
+                          <p className="mt-0.5 text-indigo-600/90 font-medium">상세 단가 또는 네고율 정보가 변경 및 승인될 때마다의 최종 단가 변경 내역을 최근 순으로 3개까지 기록하고 보여줍니다.</p>
+                        </div>
+                      </div>
+
+                      {historyRows.length === 0 ? (
+                        <div className="py-12 text-center bg-slate-50 border-2 border-dashed border-slate-100 rounded-2xl">
+                          <History className="h-8 w-8 text-slate-300 mx-auto mb-2" />
+                          <p className="text-slate-400 font-bold text-sm">해당 품목에 저장된 변동 이력이 없습니다.</p>
+                          <p className="text-[10.5px] text-slate-300 mt-1">이력은 수정 내역이 최종 적용되었을 때부터 누적 저장됩니다.</p>
+                        </div>
+                      ) : (
+                        <div className="border border-slate-100 rounded-2xl overflow-hidden bg-white shadow-sm">
+                          <table className="w-full text-left border-collapse">
+                            <thead>
+                              <tr className="bg-slate-50 text-[10.5px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100 h-10">
+                                <th className="px-5 py-2">변경 일시</th>
+                                <th className="px-4 py-2 text-right">변경 전 단가</th>
+                                <th className="px-4 py-2 text-right">변경 후 단가</th>
+                                <th className="px-5 py-2 text-right">변동 내역</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                              {historyRows.map((row, idx) => {
+                                let diffElement = null;
+                                if (row.diff !== null) {
+                                  if (row.diff > 0) {
+                                    diffElement = (
+                                      <span className="text-rose-500 font-black font-mono">
+                                        ▲ {row.diff.toLocaleString()}원 (+{row.diffPercent?.toFixed(1)}%)
+                                      </span>
+                                    );
+                                  } else if (row.diff < 0) {
+                                    diffElement = (
+                                      <span className="text-blue-500 font-black font-mono">
+                                        ▼ {Math.abs(row.diff).toLocaleString()}원 ({row.diffPercent?.toFixed(1)}%)
+                                      </span>
+                                    );
+                                  } else {
+                                    diffElement = (
+                                      <span className="text-slate-400 font-bold font-mono">
+                                        0원 (0.0%)
+                                      </span>
+                                    );
+                                  }
+                                } else {
+                                  diffElement = (
+                                    <span className="text-indigo-600 font-bold bg-indigo-50 px-2 py-0.5 rounded text-[10px] border border-indigo-100">
+                                      최초 이력등록
+                                    </span>
+                                  );
+                                }
+
+                                return (
+                                  <tr key={`history-row-${idx}`} className="hover:bg-slate-50/50 transition-colors text-xs text-slate-600 h-14">
+                                    <td className="px-5 py-2 font-semibold text-slate-500">
+                                      {formatDate(row.date)}
+                                    </td>
+                                    <td className="px-4 py-2 text-right font-mono text-slate-400">
+                                      {row.priceBefore !== null ? `${row.priceBefore.toLocaleString()}원` : '-'}
+                                    </td>
+                                    <td className="px-4 py-2 text-right font-black font-mono text-slate-800">
+                                      {row.priceAfter.toLocaleString()}원
+                                    </td>
+                                    <td className="px-5 py-2 text-right">
+                                      {diffElement}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+
+                      <div className="flex pt-6 border-t border-slate-100">
+                        <button 
+                          type="button" 
+                          onClick={() => setEditingPriceId(null)} 
+                          className="w-full p-4 rounded-xl border-2 border-slate-100 font-bold text-slate-400 hover:bg-slate-50 transition-colors"
+                        >
+                          닫기
+                        </button>
                       </div>
                     </div>
-
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">참조 단중 (KG/M)</label>
-                      <input 
-                        name="weight" 
-                        type="text" 
-                        inputMode="decimal"
-                        defaultValue={item.weight?.toLocaleString()} 
-                        onChange={(e) => {
-                          const val = e.target.value.replace(/,/g, '');
-                          if (val === '' || !isNaN(Number(val))) {
-                            e.target.value = val === '' ? '' : Number(val).toLocaleString();
-                          } else {
-                            e.target.value = e.target.value.replace(/[^0-9.]/g, '');
-                          }
-                        }}
-                        className="w-full rounded-xl border-2 border-slate-100 bg-slate-50 p-4 font-medium focus:border-indigo-500 outline-none" 
-                      />
-                    </div>
-
-                    <div className="space-y-2 flex items-center pt-6">
-                      <label className="flex items-center gap-3 cursor-pointer">
-                        <input type="checkbox" name="useRounding" defaultChecked={item.useRounding !== undefined ? item.useRounding : (selectedVendor?.roundingMethod !== 'none')} className="w-5 h-5 rounded border-slate-300 text-indigo-600" />
-                        <span className="text-sm font-bold text-slate-700">10원 단위 반올림 적용</span>
-                      </label>
-                    </div>
-
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">제조사</label>
-                      <input name="maker" defaultValue={item.maker} className="w-full rounded-xl border-2 border-slate-100 bg-slate-50 p-4 font-bold focus:border-indigo-500 outline-none" />
-                    </div>
-                    <div className="space-y-2">
-                       <label className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-600">목표단가 (Target Price)</label>
-                       <div className="relative">
-                         <span className="absolute left-4 top-1/2 -translate-y-1/2 text-lg font-bold text-emerald-200">₩</span>
-                         <input 
-                           name="targetPrice" 
-                           type="text" 
-                           inputMode="decimal"
-                           defaultValue={item.targetPrice?.toLocaleString()} 
-                           onChange={(e) => {
-                             const val = e.target.value.replace(/,/g, '');
-                             if (val === '' || !isNaN(Number(val))) {
-                               e.target.value = val === '' ? '' : Number(val).toLocaleString();
-                             } else {
-                               e.target.value = e.target.value.replace(/[^0-9.]/g, '');
-                             }
-                           }}
-                           className="w-full rounded-xl border-2 border-emerald-100 bg-emerald-50/10 p-4 pl-10 font-black text-emerald-700 focus:border-emerald-500 outline-none transition-all" 
-                           placeholder="알림 임계값 설정"
-                         />
-                       </div>
-                    </div>
-                    <div className="space-y-2 col-span-full">
-                      <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">비고</label>
-                      <textarea name="remarks" defaultValue={item.remarks} rows={2} className="w-full rounded-xl border-2 border-slate-100 bg-slate-50 p-4 font-medium focus:border-indigo-500 outline-none"></textarea>
-                    </div>
-                  </div>
-                  
-                  <div className="flex gap-3 pt-6 border-t border-slate-100">
-                    <button type="button" onClick={() => setEditingPriceId(null)} className="flex-1 p-4 rounded-xl border-2 border-slate-100 font-bold text-slate-400 hover:bg-slate-50">취소</button>
-                    <button type="submit" className="flex-1 p-4 rounded-xl bg-slate-900 text-white font-bold hover:bg-slate-800 shadow-xl shadow-slate-200">수정 내역 저장</button>
-                  </div>
-                </form>
+                  )}
+                </div>
               );
             })()}
           </Modal>
@@ -6391,6 +7307,454 @@ export default function App() {
                   </div>
                 </div>
               )}
+            </div>
+          </Modal>
+        )}
+
+        {isVendorGuideOpen && (
+          <Modal
+            key="modal-vendor-guide"
+            title="업체 전용 모드 사용방법 및 가이드"
+            onClose={() => setIsVendorGuideOpen(false)}
+            maxWidth="max-w-3xl"
+          >
+            <div className="space-y-6">
+              {/* Top Banner Card */}
+              <div className="bg-gradient-to-r from-indigo-50 to-indigo-100/50 p-5 rounded-2xl border border-indigo-100/60 flex items-start gap-3.5 shadow-sm">
+                <div className="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center shrink-0 shadow-md shadow-indigo-100 mt-0.5">
+                  <HelpCircle className="h-5 w-5 text-white" />
+                </div>
+                <div className="space-y-1">
+                  <h4 className="text-sm font-extrabold text-indigo-950">거래처 및 납품 단가 쉽고 빠른 가이드</h4>
+                  <p className="text-[11.5px] text-indigo-700 font-medium leading-relaxed">
+                    본 시스템은 (주)명신기공과 파트너 납품업체 간의 단가 소통을 디지털화하여 더욱 신속하고 명확하게 협의하기 위해 구축되었습니다. 아래 기능 가이드를 참조하시어 편리하게 대시보드를 운용해 보세요!
+                  </p>
+                </div>
+              </div>
+
+              {/* Grid content card representation */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                
+                {/* Step 1 */}
+                <div className="p-5 bg-white border border-slate-100 rounded-2xl shadow-sm hover:shadow-md hover:border-indigo-100 transition-all flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className="w-6 h-6 rounded-lg bg-indigo-50 border border-indigo-100 flex items-center justify-center text-[11px] font-black text-indigo-600">1</span>
+                      <h4 className="text-xs font-black text-slate-800 uppercase tracking-tight">전용 포탈 인증 및 접속</h4>
+                    </div>
+                    <ul className="space-y-1.5 text-[11px] text-slate-500 font-semibold pl-1.5">
+                      <li className="flex items-start gap-1.5 leading-relaxed">
+                        <span className="text-indigo-500 shrink-0 mt-0.5">▪</span>
+                        <span>카카오톡/이메일로 전달받은 <strong className="text-slate-800">전용 링크(실시간 토큰 포함)</strong>로 접속하면 비밀번호 입력 과정 없이 보안 인증되어 즉시 전용 대시보드가 활성화됩니다.</span>
+                      </li>
+                      <li className="flex items-start gap-1.5 leading-relaxed mt-1">
+                        <span className="text-indigo-500 shrink-0 mt-0.5">▪</span>
+                        <span>일반 메인화면에서는 거래업체 사이드바에서 본인 업체를 누른 후 설정된 <strong className="text-slate-800">업체 비밀번호</strong>를 입력하면 대시보드 권한을 얻을 수 있습니다.</span>
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+
+                {/* Step 2 */}
+                <div className="p-5 bg-white border border-slate-100 rounded-2xl shadow-sm hover:shadow-md hover:border-indigo-100 transition-all flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className="w-6 h-6 rounded-lg bg-indigo-50 border border-indigo-100 flex items-center justify-center text-[11px] font-black text-indigo-600">2</span>
+                      <h4 className="text-xs font-black text-slate-800 uppercase tracking-tight">품목 조회 및 간편 검색</h4>
+                    </div>
+                    <ul className="space-y-1.5 text-[11px] text-slate-500 font-semibold pl-1.5">
+                      <li className="flex items-start gap-1.5 leading-relaxed">
+                        <span className="text-indigo-500 shrink-0 mt-0.5">▪</span>
+                        <span>귀사에서 납품하는 모든 단가 품목들이 카테고리별로 정갈하게 나열됩니다. 상단 헤더의 <strong className="text-slate-800">품명/규격 검색창</strong>을 이용해 방대한 항목 중에서 필요한 품목을 초성 및 키워드만으로 실시간 필터링할 수 있습니다.</span>
+                      </li>
+                      <li className="flex items-start gap-1.5 leading-relaxed mt-1">
+                        <span className="text-indigo-500 shrink-0 mt-0.5">▪</span>
+                        <span>각 셀에는 제조사(Maker), 참조단중, 기본 협가, 네고 방식, 그리고 최적 조율된 <strong>최종 납품단가</strong>가 한눈에 비교하기 쉽게 구성되어 있습니다.</span>
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+
+                {/* Step 3 */}
+                <div className="p-5 bg-white border border-slate-100 rounded-2xl shadow-sm hover:shadow-md hover:border-indigo-100 transition-all flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className="w-6 h-6 rounded-lg bg-indigo-50 border border-indigo-100 flex items-center justify-center text-[11px] font-black text-indigo-600">3</span>
+                      <h4 className="text-xs font-black text-slate-800 uppercase tracking-tight">카테고리 탭 드래그 앤 드롭 정렬</h4>
+                    </div>
+                    <ul className="space-y-1.5 text-[11px] text-slate-500 font-semibold pl-1.5">
+                      <li className="flex items-start gap-1.5 leading-relaxed">
+                        <span className="text-indigo-500 shrink-0 mt-0.5">▪</span>
+                        <span>취급품목 리스트의 카테고리 탭 들을 마우스로 잡아서 <strong className="text-indigo-600 uppercase">원하는 순서대로 드래그 앤 드롭</strong>하여 직관적으로 위치를 바꿀 수 있습니다.</span>
+                      </li>
+                      <li className="flex items-start gap-1.5 leading-relaxed mt-1">
+                        <span className="text-indigo-500 shrink-0 mt-0.5">▪</span>
+                        <span>자주 보거나 중요한 품목군을 앞으로 정렬하여 납품 업무 효율성을 극대화해 보세요. (자동으로 데이터베이스에 연동 및 보존됩니다)</span>
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+
+                {/* Step 4 */}
+                <div className="p-5 bg-white border border-slate-100 rounded-2xl shadow-sm hover:shadow-md hover:border-indigo-100 transition-all flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className="w-6 h-6 rounded-lg bg-indigo-50 border border-indigo-100 flex items-center justify-center text-[11px] font-black text-indigo-600">4</span>
+                      <h4 className="text-xs font-black text-slate-800 uppercase tracking-tight">개별/일괄 단가 수정 요청 (네고)</h4>
+                    </div>
+                    <ul className="space-y-1.5 text-[11px] text-slate-500 font-semibold pl-1.5">
+                      <li className="flex items-start gap-1.5 leading-relaxed">
+                        <span className="text-indigo-500 shrink-0 mt-0.5">▪</span>
+                        <span><strong className="text-slate-800">개별 수정</strong>: 품목별 우측 연필단추를 눌러 이름, 규격 외에 네고 상세방식(네고율% 또는 STS KG단중단가), 제조사 등을 맞춤 설정할 수 있습니다.</span>
+                      </li>
+                      <li className="flex items-start gap-1.5 leading-relaxed mt-1">
+                        <span className="text-indigo-500 shrink-0 mt-0.5">▪</span>
+                        <span><strong className="text-slate-800">일괄 네고 적용</strong>: 해당 카테고리 전체 또는 전체 품목에 대해 우측 상단의 일괄 네고 등록 버튼을 통해 수분 만에 단가 인하율/네고값을 일괄 기입하여 저장 및 전송할 수 있습니다.</span>
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+
+                {/* Step 5 */}
+                <div className="p-5 bg-white border border-slate-100 rounded-2xl shadow-sm hover:shadow-md hover:border-indigo-100 transition-all col-span-full">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="w-6 h-6 rounded-lg bg-indigo-50 border border-indigo-100 flex items-center justify-center text-[11px] font-black text-indigo-600">5</span>
+                    <h4 className="text-xs font-black text-slate-800 uppercase tracking-tight">과거 변동 이력(Log) 체크 및 관리자 승인제</h4>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <ul className="space-y-1.5 text-[11px] text-slate-500 font-semibold pl-1.5">
+                      <li className="flex items-start gap-1.5 leading-relaxed">
+                        <span className="text-indigo-500 shrink-0 mt-0.5">▪</span>
+                        <span><strong className="text-slate-800">수정 승인 대기</strong>: 보안 및 회계 투명성을 위해 업체에서 단가나 네고 수정을 진행하여 저장하면 즉시 <span className="text-amber-600 font-extrabold bg-amber-50 px-1 py-0.5 rounded border border-amber-150">승인 대기</span> 리스트로 올라갑니다.</span>
+                      </li>
+                      <li className="flex items-start gap-1.5 leading-relaxed mt-1">
+                        <span className="text-indigo-500 shrink-0 mt-0.5">▪</span>
+                        <span>명신기공 원자재관리팀에서 관리자용 승인 버튼을 클릭하는 즉시 최종 확정 상태로 데이터베이스에 등재됩니다.</span>
+                      </li>
+                    </ul>
+                    <ul className="space-y-1.5 text-[11px] text-slate-500 font-semibold pl-1.5 border-t md:border-t-0 md:border-l border-slate-100 pt-3 md:pt-0 md:pl-4">
+                      <li className="flex items-start gap-1.5 leading-relaxed">
+                        <span className="text-indigo-500 shrink-0 mt-0.5">▪</span>
+                        <span><strong className="text-indigo-600">단가 변동 이력 검정</strong>: 개별 품목 수정 모달창 안의 <strong className="text-indigo-600">‘가격 변동 이력’ 탭</strong>을 클릭하시면, 과거 해당 품목의 단가가 언제, 어떤 네고 조정을 통해 바뀌었는지 일자별 상세 가액 변동 로그를 표로 추적할 수 있습니다.</span>
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+
+              </div>
+
+              {/* Bottom Footer Actions inside Modal */}
+              <div className="flex pt-4 border-t border-slate-100">
+                <button 
+                  type="button" 
+                  onClick={() => setIsVendorGuideOpen(false)} 
+                  className="w-full py-3.5 rounded-xl bg-slate-900 border border-transparent hover:bg-slate-800 text-white font-extrabold text-xs transition-colors shadow-lg shadow-slate-200"
+                >
+                  기억해두기 및 닫기
+                </button>
+              </div>
+            </div>
+          </Modal>
+        )}
+
+        {/* VENDOR DOCUMENTS MANAGEMENT MODAL */}
+        {isVendorDocsModalOpen && selectedVendor && (
+          <Modal
+            key="modal-vendor-docs"
+            title={`${selectedVendor.name} - 거래처 증빙 서류 관리`}
+            onClose={() => setIsVendorDocsModalOpen(false)}
+            maxWidth="max-w-4xl"
+          >
+            <div className="space-y-6">
+              {/* Header Status Summary */}
+              {(() => {
+                const docKeys: Array<{ key: 'businessCert' | 'bankbook' | 'promissoryNote'; label: string; desc: string; icon: any }> = [
+                  { key: 'businessCert', label: '사업자등록증', desc: '사업자등록증 사본 (PDF / 이미지)', icon: Receipt },
+                  { key: 'bankbook', label: '통장사본', desc: '결제/정산 계좌 통장사본 (PDF / 이미지)', icon: CreditCard },
+                  { key: 'promissoryNote', label: '전자어음약정확인서', desc: '거래처 전자어음 약정 확인 증서', icon: FileText }
+                ];
+                const attachedCount = docKeys.filter(d => !!selectedVendor[`${d.key}Url`]).length;
+                return (
+                  <div>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 bg-emerald-50/60 border border-emerald-200/80 rounded-2xl">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-md shadow-emerald-200 shrink-0">
+                          <ShieldCheck className="h-5 w-5" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h4 className="text-sm font-extrabold text-emerald-950">필수 증빙 서류 등록 현황</h4>
+                            <span className={`px-2 py-0.5 rounded-md text-[10px] font-black ${
+                              attachedCount === 3 
+                                ? 'bg-emerald-600 text-white' 
+                                : attachedCount > 0 
+                                ? 'bg-amber-500 text-white' 
+                                : 'bg-slate-300 text-slate-700'
+                            }`}>
+                              {attachedCount} / 3 등록 완료
+                            </span>
+                          </div>
+                          <p className="text-xs text-emerald-800/80 mt-0.5">
+                            거래처 기본 서류 3종(사업자등록증, 통장사본, 전자어음약정서)을 상시 확인하고 업데이트할 수 있습니다.
+                          </p>
+                        </div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <span className="text-[11px] font-bold text-slate-500">
+                          {isAdminMode ? '관리자 권한: 즉시 업로드 / 교체 / 삭제 가능' : '업체 전용: 증빙 서류 검토 및 첨부 가능'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* 3 Document Cards */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
+                      {docKeys.map(({ key, label, desc, icon: Icon }) => {
+                        const url = selectedVendor[`${key}Url`];
+                        const fileName = selectedVendor[`${key}FileName`] || `${label} 첨부파일`;
+                        const fileType = selectedVendor[`${key}FileType`] || 'unknown';
+                        const updatedAt = selectedVendor[`${key}UpdatedAt`];
+                        const isDraggingThis = activeDocDragging === key;
+
+                        return (
+                          <div
+                            key={`doc-card-${key}`}
+                            className={`flex flex-col justify-between p-5 rounded-2xl border-2 transition-all ${
+                              url 
+                                ? 'border-emerald-200 bg-white shadow-sm hover:shadow-md' 
+                                : 'border-dashed border-slate-200 bg-slate-50/50 hover:bg-white hover:border-emerald-300'
+                            }`}
+                          >
+                            <div>
+                              {/* Card Header */}
+                              <div className="flex items-start justify-between gap-2 mb-3">
+                                <div className="flex items-center gap-2">
+                                  <div className={`p-2 rounded-xl shrink-0 ${url ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>
+                                    <Icon className="h-4 w-4" />
+                                  </div>
+                                  <div>
+                                    <h5 className="text-xs font-black text-slate-800">{label}</h5>
+                                    <p className="text-[10px] text-slate-400">{desc}</p>
+                                  </div>
+                                </div>
+                                {url ? (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-black text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 shrink-0">
+                                    <CheckCircle2 className="h-3 w-3 text-emerald-600" />
+                                    완료
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full shrink-0">
+                                    미첨부
+                                  </span>
+                                )}
+                              </div>
+
+                              {/* Card Body */}
+                              {url ? (
+                                <div className="space-y-2.5 my-3 p-3 bg-slate-50/80 rounded-xl border border-slate-100">
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <FileText className="h-4 w-4 text-emerald-600 shrink-0" />
+                                    <p className="text-xs font-bold text-slate-800 truncate" title={fileName}>
+                                      {fileName}
+                                    </p>
+                                  </div>
+                                  <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono">
+                                    <span className="uppercase font-bold px-1.5 py-0.5 bg-white border border-slate-200 rounded text-slate-600">
+                                      {fileType === 'pdf' ? 'PDF 문서' : fileType === 'image' ? '이미지' : '파일'}
+                                    </span>
+                                    <span>
+                                      {updatedAt?.toDate ? updatedAt.toDate().toLocaleDateString('ko-KR') : '등록일 미상'}
+                                    </span>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div 
+                                  className={`my-3 p-5 rounded-xl border border-dashed text-center transition-all cursor-pointer ${
+                                    isDraggingThis ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200 bg-white hover:border-emerald-400'
+                                  }`}
+                                  onClick={() => document.getElementById(`upload-doc-input-${key}`)?.click()}
+                                  onDragOver={(e) => {
+                                    e.preventDefault();
+                                    setActiveDocDragging(key);
+                                  }}
+                                  onDragLeave={() => setActiveDocDragging(null)}
+                                  onDrop={(e) => {
+                                    e.preventDefault();
+                                    setActiveDocDragging(null);
+                                    const file = e.dataTransfer.files?.[0];
+                                    if (file) {
+                                      handleUploadSingleDoc(key, file);
+                                    }
+                                  }}
+                                >
+                                  <Upload className="h-6 w-6 text-slate-300 mx-auto mb-1" />
+                                  <p className="text-[11px] font-bold text-slate-600">파일 선택 또는 드래그</p>
+                                  <p className="text-[9px] text-slate-400 mt-0.5">PDF, JPG, PNG (최대 15MB)</p>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Card Footer Actions */}
+                            <div className="pt-2 border-t border-slate-100 mt-2 space-y-2">
+                              {url ? (
+                                <div className="space-y-1.5">
+                                  <div className="grid grid-cols-2 gap-1.5">
+                                    <button
+                                      type="button"
+                                      onClick={() => setPreviewDoc({
+                                        title: `${selectedVendor.name} - ${label}`,
+                                        url,
+                                        fileType,
+                                        fileName,
+                                        docKey: key
+                                      })}
+                                      className="py-2 px-2 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-[11px] flex items-center justify-center gap-1 transition-colors"
+                                    >
+                                      <Eye className="h-3 w-3" />
+                                      미리보기
+                                    </button>
+                                    <a
+                                      href={url}
+                                      download={fileName}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="py-2 px-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[11px] flex items-center justify-center gap-1 transition-colors text-center"
+                                    >
+                                      <Download className="h-3 w-3" />
+                                      다운로드
+                                    </a>
+                                  </div>
+                                  <div className="flex items-center justify-between gap-2 pt-1">
+                                    <label
+                                      htmlFor={`upload-doc-input-${key}`}
+                                      className="flex-1 py-1.5 px-2 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600 font-bold text-[10px] text-center cursor-pointer transition-colors"
+                                    >
+                                      새 파일로 교체
+                                    </label>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteSingleDoc(key)}
+                                      className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                                      title="파일 삭제"
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <label
+                                  htmlFor={`upload-doc-input-${key}`}
+                                  className="w-full py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-sm active:scale-95 transition-all text-center"
+                                >
+                                  <Upload className="h-3.5 w-3.5" />
+                                  {label} 등록하기
+                                </label>
+                              )}
+
+                              <input
+                                id={`upload-doc-input-${key}`}
+                                type="file"
+                                accept=".pdf,image/*"
+                                className="hidden"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (file) {
+                                    handleUploadSingleDoc(key, file);
+                                  }
+                                  e.target.value = '';
+                                }}
+                              />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {isUploadingDoc && (
+                <div className="p-4 bg-emerald-50 rounded-xl border border-emerald-200 flex items-center justify-center gap-3">
+                  <Loader2 className="h-5 w-5 text-emerald-600 animate-spin" />
+                  <span className="text-xs font-bold text-emerald-800">문서 저장 및 클라우드 업로드 처리 중입니다...</span>
+                </div>
+              )}
+
+              {/* Bottom Footer */}
+              <div className="flex items-center justify-between pt-4 border-t border-slate-100">
+                <p className="text-[11px] text-slate-400">
+                  * 첨부된 서류는 보안 클라우드 스토리지에 암호화되어 안전하게 보관됩니다.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setIsVendorDocsModalOpen(false)}
+                  className="px-6 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs transition-colors shadow-sm"
+                >
+                  닫기
+                </button>
+              </div>
+            </div>
+          </Modal>
+        )}
+
+        {/* DOCUMENT PREVIEW MODAL */}
+        {previewDoc && (
+          <Modal
+            key="modal-preview-doc"
+            title={previewDoc.title}
+            onClose={() => setPreviewDoc(null)}
+            maxWidth="max-w-5xl"
+          >
+            <div className="space-y-4">
+              <div className="flex items-center justify-between bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs">
+                <div className="flex items-center gap-2 truncate">
+                  <FileCheck className="h-4 w-4 text-emerald-600 shrink-0" />
+                  <span className="font-bold text-slate-800 truncate">{previewDoc.fileName}</span>
+                  <span className="text-[10px] font-mono px-1.5 py-0.5 bg-white rounded border border-slate-200 text-slate-500 uppercase">
+                    {previewDoc.fileType}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <a
+                    href={previewDoc.url}
+                    download={previewDoc.fileName}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 font-bold rounded-lg border border-slate-200 transition-colors flex items-center gap-1 shadow-xs"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    다운로드 / 새 창 열기
+                  </a>
+                </div>
+              </div>
+
+              <div className="bg-slate-100 rounded-2xl p-2 min-h-[500px] flex items-center justify-center overflow-auto border border-slate-200">
+                {previewDoc.fileType === 'pdf' || previewDoc.url.toLowerCase().includes('.pdf') ? (
+                  <iframe
+                    src={previewDoc.url}
+                    title={previewDoc.title}
+                    className="w-full h-[70vh] rounded-xl border-none bg-white"
+                  />
+                ) : (
+                  <div className="max-h-[70vh] flex items-center justify-center p-4">
+                    <img
+                      src={previewDoc.url}
+                      alt={previewDoc.title}
+                      className="max-h-[65vh] max-w-full object-contain rounded-xl shadow-md"
+                      referrerPolicy="no-referrer"
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-end pt-2">
+                <button
+                  type="button"
+                  onClick={() => setPreviewDoc(null)}
+                  className="px-6 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition-colors"
+                >
+                  닫기
+                </button>
+              </div>
             </div>
           </Modal>
         )}

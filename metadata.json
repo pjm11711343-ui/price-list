@@ -2,5 +2,5 @@
   "name": "(주)명신기공 단가 관리시스템",
   "description": "업체 정보 및 비밀번호 기반 품목 단가표를 관리하고 거래처별 단가 통합 비교(매트릭스) 기능을 제공하는 시스템입니다.",
   "requestFramePermissions": [],
-  "majorCapabilities": []
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

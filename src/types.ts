@@ -26,6 +26,19 @@ export interface Vendor {
   noticeFileType?: 'image' | 'pdf' | 'unknown';
   noticeFileName?: string;
   noticeUpdatedAt?: any;
+  // 필수 증빙 서류 (사업자등록증, 통장사본, 전자어음약정확인서)
+  businessCertUrl?: string;
+  businessCertFileName?: string;
+  businessCertFileType?: 'image' | 'pdf' | 'unknown';
+  businessCertUpdatedAt?: any;
+  bankbookUrl?: string;
+  bankbookFileName?: string;
+  bankbookFileType?: 'image' | 'pdf' | 'unknown';
+  bankbookUpdatedAt?: any;
+  promissoryNoteUrl?: string;
+  promissoryNoteFileName?: string;
+  promissoryNoteFileType?: 'image' | 'pdf' | 'unknown';
+  promissoryNoteUpdatedAt?: any;
 }
 
 export interface ComparisonRow {

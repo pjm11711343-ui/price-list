@@ -53,7 +53,19 @@
         "noticeFileUrl": { "type": "string" },
         "noticeFileType": { "type": "string" },
         "noticeFileName": { "type": "string" },
-        "noticeUpdatedAt": { "type": "string", "format": "date-time" }
+        "noticeUpdatedAt": { "type": "string", "format": "date-time" },
+        "businessCertUrl": { "type": "string" },
+        "businessCertFileName": { "type": "string" },
+        "businessCertFileType": { "type": "string" },
+        "businessCertUpdatedAt": { "type": "string", "format": "date-time" },
+        "bankbookUrl": { "type": "string" },
+        "bankbookFileName": { "type": "string" },
+        "bankbookFileType": { "type": "string" },
+        "bankbookUpdatedAt": { "type": "string", "format": "date-time" },
+        "promissoryNoteUrl": { "type": "string" },
+        "promissoryNoteFileName": { "type": "string" },
+        "promissoryNoteFileType": { "type": "string" },
+        "promissoryNoteUpdatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["name"]
     },
