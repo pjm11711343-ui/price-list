@@ -39,6 +39,17 @@ export interface Vendor {
   promissoryNoteFileName?: string;
   promissoryNoteFileType?: 'image' | 'pdf' | 'unknown';
   promissoryNoteUpdatedAt?: any;
+  // 계약서 전자 체결 및 관리 (명신기공 날인 -> 거래처 날인 회신)
+  contractAdminUrl?: string; // (주)명신기공 날인 계약서
+  contractAdminFileName?: string;
+  contractAdminFileType?: 'image' | 'pdf' | 'unknown';
+  contractAdminUpdatedAt?: any;
+  contractVendorUrl?: string; // 거래처 직인/인감 날인 계약서
+  contractVendorFileName?: string;
+  contractVendorFileType?: 'image' | 'pdf' | 'unknown';
+  contractVendorUpdatedAt?: any;
+  contractStatus?: 'none' | 'pending_vendor' | 'completed'; // 미등록 / 거래처 날인 회신 대기(알림 발생) / 체결 완료
+  contractNote?: string; // 계약 비고사항 / 계약기간 등
 }
 
 export interface ComparisonRow {
@@ -86,4 +97,29 @@ export interface PendingPriceUpdate {
   requestedBy: string; // 'vendor' or name
   requestedAt: any;
   approvedAt?: any;
+}
+
+export type FluctuationPeriodType = '1m' | '3m' | '6m' | '1y' | 'all' | 'custom';
+export type FluctuationSortMode = 'absAmount' | 'rate' | 'increase' | 'decrease';
+
+export interface PriceFluctuationItem {
+  key: string; // unique item key (${itemName}_${spec})
+  itemName: string;
+  spec: string;
+  unit: string;
+  category: string;
+  primaryVendorId: string;
+  primaryVendorName: string;
+  allVendorNames: string[];
+  startPrice: number;
+  endPrice: number;
+  priceDiff: number; // endPrice - startPrice
+  absDiff: number; // Math.abs(priceDiff)
+  percentDiff: number; // ((endPrice - startPrice) / startPrice) * 100
+  direction: 'up' | 'down' | 'same';
+  minPrice: number;
+  maxPrice: number;
+  lastUpdated?: any;
+  changeCount: number;
+  historyTimeline: { price: number; date: any; label?: string }[];
 }

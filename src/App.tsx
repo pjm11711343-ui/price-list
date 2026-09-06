@@ -51,7 +51,12 @@ import {
   Receipt,
   Eye,
   Paperclip,
-  ShieldCheck
+  ShieldCheck,
+  FileSignature,
+  Stamp,
+  Bell,
+  AlertCircle,
+  TrendingUp
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -90,6 +95,7 @@ import {
 } from 'firebase/storage';
 import { db, auth, storage } from './lib/firebase';
 import { Vendor, PriceItem, ComparisonRow, PendingPriceUpdate } from './types';
+import { TopFluctuationReport } from './components/TopFluctuationReport';
 import { ALL_VENDORS } from './data/seedData';
 
 // Error Handling Types
@@ -287,8 +293,16 @@ export default function App() {
     url: string;
     fileType: 'image' | 'pdf' | 'unknown';
     fileName: string;
-    docKey: 'businessCert' | 'bankbook' | 'promissoryNote';
+    docKey: 'businessCert' | 'bankbook' | 'promissoryNote' | 'contractAdmin' | 'contractVendor';
   } | null>(null);
+
+  // Contract management state (전자 계약서 쌍방 날인 체결 및 회신 알림)
+  const [isContractModalOpen, setIsContractModalOpen] = useState(false);
+  const [isContractPendingListModalOpen, setIsContractPendingListModalOpen] = useState(false);
+  const [isUploadingContract, setIsUploadingContract] = useState(false);
+  const [activeContractDragging, setActiveContractDragging] = useState<'admin' | 'vendor' | null>(null);
+  const [contractNoteInput, setContractNoteInput] = useState('');
+  const [isSavingContractNote, setIsSavingContractNote] = useState(false);
 
   // Files for Add Vendor Modal
   const [addBusinessCertFile, setAddBusinessCertFile] = useState<File | null>(null);
@@ -605,6 +619,21 @@ export default function App() {
   const [activeCategory, setActiveCategory] = useState('전체');
   const [selectedMatrixRow, setSelectedMatrixRow] = useState<any>(null);
   const [showVarianceChart, setShowVarianceChart] = useState(false);
+  const [showTopFluctuationReport, setShowTopFluctuationReport] = useState(true);
+  const [highlightedMatrixKey, setHighlightedMatrixKey] = useState<string | null>(null);
+
+  const handleSelectFluctuationRow = (itemName: string, spec: string) => {
+    const key = `${itemName}_${spec || ''}`;
+    setHighlightedMatrixKey(key);
+    const rowElId = `matrix-row-${encodeURIComponent(itemName)}-${encodeURIComponent(spec || '')}`;
+    const el = document.getElementById(rowElId);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+    setTimeout(() => {
+      setHighlightedMatrixKey(prev => prev === key ? null : prev);
+    }, 4000);
+  };
 
   const categoryVarianceData = useMemo(() => {
     const grouped: Record<string, { category: string; prices: number[] }> = {};
@@ -2191,7 +2220,7 @@ export default function App() {
 
   const uploadVendorDocFile = async (
     vendorId: string, 
-    docType: 'businessCert' | 'bankbook' | 'promissoryNote', 
+    docType: 'businessCert' | 'bankbook' | 'promissoryNote' | 'contractAdmin' | 'contractVendor', 
     file: File
   ): Promise<{ url: string; fileName: string; fileType: 'image' | 'pdf' | 'unknown' }> => {
     if (file.size > 15 * 1024 * 1024) {
@@ -2206,10 +2235,11 @@ export default function App() {
     }
 
     const cleanName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const folder = (docType === 'contractAdmin' || docType === 'contractVendor') ? 'contracts' : 'vendor_docs';
     const fileName = `vendor_${vendorId}_${docType}_${Date.now()}_${cleanName}`;
     
     try {
-      const sRef = storageRef(storage, `vendor_docs/${fileName}`);
+      const sRef = storageRef(storage, `${folder}/${fileName}`);
       const snapshot = await uploadBytes(sRef, file);
       const url = await getDownloadURL(snapshot.ref);
       return { url, fileName: file.name, fileType };
@@ -2299,6 +2329,132 @@ export default function App() {
       alert("파일 삭제 중 오류가 발생했습니다: " + error.message);
     } finally {
       setIsUploadingDoc(false);
+    }
+  };
+
+  // 계약서 회신 대기(알림 발생) 업체 목록 계산
+  const pendingContractVendors = useMemo(() => {
+    return vendors.filter(v => !v.deleted && (v.contractStatus === 'pending_vendor' || (!!v.contractAdminUrl && !v.contractVendorUrl)));
+  }, [vendors]);
+
+  useEffect(() => {
+    if (selectedVendor) {
+      setContractNoteInput(selectedVendor.contractNote || '');
+    }
+  }, [selectedVendor?.id]);
+
+  // 전자 계약서 업로드 (관리자 직인 날인본 / 거래처 인감 날인본)
+  const handleUploadContractFile = async (
+    contractSide: 'admin' | 'vendor',
+    file: File
+  ) => {
+    if (!selectedVendor) return;
+    setIsUploadingContract(true);
+    const sideLabel = contractSide === 'admin' ? '(주)명신기공 직인 날인 계약서' : '거래처 날인 계약서';
+    try {
+      const docType = contractSide === 'admin' ? 'contractAdmin' : 'contractVendor';
+      const res = await uploadVendorDocFile(selectedVendor.id, docType, file);
+
+      // 명신기공 계약서 등록 시 거래처 회신이 아직 없으면 pending_vendor(알림 발생)
+      // 거래처 계약서 등록 시 completed(체결 완료, 알림 해제)
+      const hasOther = contractSide === 'admin' ? !!selectedVendor.contractVendorUrl : !!selectedVendor.contractAdminUrl;
+      const newStatus = contractSide === 'admin'
+        ? (hasOther ? 'completed' : 'pending_vendor')
+        : 'completed';
+
+      const updatePayload: Record<string, any> = {
+        [contractSide === 'admin' ? 'contractAdminUrl' : 'contractVendorUrl']: res.url,
+        [contractSide === 'admin' ? 'contractAdminFileName' : 'contractVendorFileName']: res.fileName,
+        [contractSide === 'admin' ? 'contractAdminFileType' : 'contractVendorFileType']: res.fileType,
+        [contractSide === 'admin' ? 'contractAdminUpdatedAt' : 'contractVendorUpdatedAt']: serverTimestamp(),
+        contractStatus: newStatus,
+        updatedAt: serverTimestamp()
+      };
+
+      await updateDoc(doc(db, 'vendors', selectedVendor.id), updatePayload);
+      setSelectedVendor(prev => prev ? { ...prev, ...updatePayload } : null);
+      setVendors(prev => prev.map(v => v.id === selectedVendor.id ? { ...v, ...updatePayload } : v));
+
+      if (contractSide === 'admin') {
+        if (!hasOther) {
+          alert(`(주)명신기공 직인 날인 계약서가 등록되었습니다.\n\n🚨 거래처에 도장/인감 날인 회신을 요청하는 알림이 시작되었습니다.`);
+        } else {
+          alert(`(주)명신기공 날인 계약서가 성공적으로 업데이트되었습니다.`);
+        }
+      } else {
+        alert(`거래처 날인 계약서가 성공적으로 등록되었습니다!\n\n🎉 상호 날인 계약 체결이 완료되었으며, 회신 요청 알림이 자동으로 해제되었습니다.`);
+      }
+    } catch (error: any) {
+      console.error("Error uploading contract:", error);
+      let msg = error.message || "계약서 업로드에 실패했습니다.";
+      if (error.code === 'storage/retry-limit-exceeded' || error.code === 'storage/unauthorized') {
+        msg = "저장소 접근 권한 오류가 발생했습니다. (파일 크기가 800KB 이하인 경우 자동 대체 저장됩니다.)";
+      }
+      alert(msg);
+    } finally {
+      setIsUploadingContract(false);
+    }
+  };
+
+  const handleDeleteContractFile = async (contractSide: 'admin' | 'vendor') => {
+    if (!selectedVendor) return;
+    const sideLabel = contractSide === 'admin' ? '(주)명신기공 날인 계약서' : '거래처 날인 계약서';
+    if (!confirm(`${sideLabel}를 삭제하시겠습니까?`)) return;
+
+    setIsUploadingContract(true);
+    try {
+      const isDeletingAdmin = contractSide === 'admin';
+      const remainingVendorUrl = isDeletingAdmin ? selectedVendor.contractVendorUrl : '';
+      const remainingAdminUrl = isDeletingAdmin ? '' : selectedVendor.contractAdminUrl;
+
+      let newStatus: 'none' | 'pending_vendor' | 'completed' = 'none';
+      if (remainingAdminUrl && !remainingVendorUrl) {
+        newStatus = 'pending_vendor';
+      } else if (remainingVendorUrl) {
+        newStatus = 'completed';
+      }
+
+      const updatePayload: Record<string, any> = {
+        [contractSide === 'admin' ? 'contractAdminUrl' : 'contractVendorUrl']: '',
+        [contractSide === 'admin' ? 'contractAdminFileName' : 'contractVendorFileName']: '',
+        [contractSide === 'admin' ? 'contractAdminFileType' : 'contractVendorFileType']: 'unknown',
+        [contractSide === 'admin' ? 'contractAdminUpdatedAt' : 'contractVendorUpdatedAt']: null,
+        contractStatus: newStatus,
+        updatedAt: serverTimestamp()
+      };
+
+      await updateDoc(doc(db, 'vendors', selectedVendor.id), updatePayload);
+      setSelectedVendor(prev => prev ? { ...prev, ...updatePayload } : null);
+      setVendors(prev => prev.map(v => v.id === selectedVendor.id ? { ...v, ...updatePayload } : v));
+
+      if (previewDoc?.docKey === (isDeletingAdmin ? 'contractAdmin' : 'contractVendor')) {
+        setPreviewDoc(null);
+      }
+      alert(`${sideLabel}가 삭제되었습니다.`);
+    } catch (error: any) {
+      console.error("Error deleting contract:", error);
+      alert("계약서 삭제 중 오류가 발생했습니다: " + error.message);
+    } finally {
+      setIsUploadingContract(false);
+    }
+  };
+
+  const handleSaveContractNote = async () => {
+    if (!selectedVendor) return;
+    setIsSavingContractNote(true);
+    try {
+      await updateDoc(doc(db, 'vendors', selectedVendor.id), {
+        contractNote: contractNoteInput,
+        updatedAt: serverTimestamp()
+      });
+      setSelectedVendor(prev => prev ? { ...prev, contractNote: contractNoteInput } : null);
+      setVendors(prev => prev.map(v => v.id === selectedVendor.id ? { ...v, contractNote: contractNoteInput } : v));
+      alert("계약 특약사항 및 메모가 저장되었습니다.");
+    } catch (error: any) {
+      console.error("Error saving contract note:", error);
+      alert("메모 저장 실패: " + error.message);
+    } finally {
+      setIsSavingContractNote(false);
     }
   };
 
@@ -3036,6 +3192,21 @@ export default function App() {
             <HelpCircle className="h-3.5 w-3.5 text-indigo-500" />
             <span>업체모드 사용방법</span>
           </button>
+          {/* 계약서 미회신 알림 (미회신 업체가 있는 경우 항시 발생) */}
+          {pendingContractVendors.length > 0 && (
+            <button 
+              onClick={() => setIsContractPendingListModalOpen(true)}
+              className="relative flex items-center gap-1.5 px-3.5 py-1.5 bg-rose-50 text-rose-700 rounded-full border border-rose-200 hover:bg-rose-100 transition-all shadow-sm group"
+              title="거래처 직인/인감 날인 회신 대기 중인 계약서 목록을 확인합니다."
+            >
+              <Bell className="h-3.5 w-3.5 text-rose-600 animate-bounce" />
+              <span className="text-xs font-black">계약서 미회신 {pendingContractVendors.length}건</span>
+              <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-600"></span>
+              </span>
+            </button>
+          )}
           {isAdminMode && pendingUpdates.filter(u => u.status === 'pending').length > 0 && (
             <button 
               onClick={() => setIsApprovalsModalOpen(true)}
@@ -3293,6 +3464,17 @@ export default function App() {
                             )}
                             <span className="text-[10px] font-mono text-slate-400 w-4 tabular-nums shrink-0">{index + 1}</span>
                             <span className="truncate">{vendor.name}</span>
+                            {(vendor.contractStatus === 'pending_vendor' || (vendor.contractAdminUrl && !vendor.contractVendorUrl)) && (
+                              <span className="shrink-0 text-[9px] font-black bg-rose-100 text-rose-700 px-1.5 py-0.5 rounded-full flex items-center gap-1 animate-pulse" title="계약서 회신 대기 중 (알림)">
+                                <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                                계약서대기
+                              </span>
+                            )}
+                            {(vendor.contractStatus === 'completed' || (vendor.contractAdminUrl && vendor.contractVendorUrl)) && (
+                              <span className="shrink-0 text-[9px] font-bold bg-emerald-50 text-emerald-600 px-1 py-0.5 rounded flex items-center gap-0.5" title="계약 체결 완료">
+                                <CheckCircle2 className="h-2.5 w-2.5" />
+                              </span>
+                            )}
                           </div>
                           <div className="flex items-center gap-2">
                             {isAdminMode && (
@@ -3341,6 +3523,17 @@ export default function App() {
                           )}
                           <span className="text-[10px] font-mono text-slate-400 w-4 tabular-nums shrink-0">{index + 1}</span>
                           <span className="truncate">{vendor.name}</span>
+                          {(vendor.contractStatus === 'pending_vendor' || (vendor.contractAdminUrl && !vendor.contractVendorUrl)) && (
+                            <span className="shrink-0 text-[9px] font-black bg-rose-100 text-rose-700 px-1.5 py-0.5 rounded-full flex items-center gap-1 animate-pulse" title="계약서 회신 대기 중 (알림)">
+                              <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                              계약서대기
+                            </span>
+                          )}
+                          {(vendor.contractStatus === 'completed' || (vendor.contractAdminUrl && vendor.contractVendorUrl)) && (
+                            <span className="shrink-0 text-[9px] font-bold bg-emerald-50 text-emerald-600 px-1 py-0.5 rounded flex items-center gap-0.5" title="계약 체결 완료">
+                              <CheckCircle2 className="h-2.5 w-2.5" />
+                            </span>
+                          )}
                         </div>
                         <div className="flex items-center gap-2">
                           {isAdminMode && (
@@ -3379,7 +3572,19 @@ export default function App() {
                          </h1>
                          <p className="text-[11px] text-slate-400 font-medium tracking-tight mt-1">업체별 동일 품명/규격 상품의 단가를 한눈에 비교합니다.</p>
                        </div>
-                       <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2">
+                          <button 
+                            onClick={() => setShowTopFluctuationReport(!showTopFluctuationReport)}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all border ${
+                              showTopFluctuationReport 
+                              ? 'bg-rose-600 border-rose-500 text-white shadow-md shadow-rose-200' 
+                              : 'bg-white border-slate-200 text-slate-600 hover:border-rose-400 hover:text-rose-600 shadow-xs'
+                            }`}
+                            title="특정 기간 동안의 단가 변동폭이 가장 큰 상위 5개 품목 리포트 토글"
+                          >
+                            <TrendingUp className="h-3 w-3" />
+                            주요 변동 품목 리포트
+                          </button>
                           <button 
                             onClick={() => setShowVarianceChart(!showVarianceChart)}
                             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all border ${
@@ -3414,6 +3619,16 @@ export default function App() {
                      </div>
                    </div>
                 </header>
+                
+                {/* 4. TOP FLUCTUATION REPORT (상단 주요 변동 품목 리포트) */}
+                {showTopFluctuationReport && (
+                  <TopFluctuationReport
+                    allPrices={allPrices}
+                    matrixCategory={matrixCategory}
+                    searchTerm={searchTerm}
+                    onSelectRow={handleSelectFluctuationRow}
+                  />
+                )}
                 
                 {showVarianceChart && categoryVarianceData.length > 0 && (
                    <motion.div 
@@ -3517,9 +3732,20 @@ export default function App() {
                                   const priceEntries = Object.values(row.prices) as any[];
                                   const priceValues = priceEntries.map(p => p.unitPrice);
                                   const minPrice = priceValues.length > 0 ? Math.min(...priceValues) : null;
+                                  const rowKey = `${row.itemName}_${row.spec || ''}`;
+                                  const isHighlighted = highlightedMatrixKey === rowKey;
+                                  const rowElementId = `matrix-row-${encodeURIComponent(row.itemName)}-${encodeURIComponent(row.spec || '')}`;
                                 
                                 return (
-                                  <tr key={`matrix-row-${idx}`} className="hover:bg-indigo-50/30 transition-colors h-10 group">
+                                  <tr 
+                                    key={`matrix-row-${idx}`} 
+                                    id={rowElementId}
+                                    className={`transition-all h-10 group ${
+                                      isHighlighted 
+                                        ? 'bg-amber-100/90 ring-2 ring-amber-400 ring-inset shadow-md' 
+                                        : 'hover:bg-indigo-50/30'
+                                    }`}
+                                  >
                                     <td className="px-6 font-bold text-slate-800 border-r border-slate-100 sticky left-0 bg-white group-hover:bg-indigo-50/50 z-10 transition-colors shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
                                       <div className="flex items-center justify-between">
                                         <div className="flex flex-col truncate">
@@ -4044,6 +4270,86 @@ export default function App() {
                               {selectedVendor.promissoryNoteUrl ? '완료' : '미첨부'}
                             </span>
                           </button>
+
+                          <div className="h-3 w-px bg-slate-200 mx-0.5 hidden sm:block" />
+
+                          {/* 명신기공 계약서 */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (selectedVendor.contractAdminUrl) {
+                                setPreviewDoc({
+                                  title: `(주)명신기공 날인 계약서 (${selectedVendor.name})`,
+                                  url: selectedVendor.contractAdminUrl,
+                                  fileType: selectedVendor.contractAdminFileType || 'unknown',
+                                  fileName: selectedVendor.contractAdminFileName || '명신기공_날인_계약서',
+                                  docKey: 'contractAdmin'
+                                });
+                              } else {
+                                setIsContractModalOpen(true);
+                              }
+                            }}
+                            className={`px-2.5 py-1 rounded-lg text-[10px] font-bold flex items-center gap-1.5 transition-all active:scale-95 ${
+                              selectedVendor.contractAdminUrl 
+                                ? 'bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 shadow-xs' 
+                                : 'bg-slate-50 text-slate-400 border border-slate-200 hover:bg-slate-100 hover:text-slate-600'
+                            }`}
+                            title={selectedVendor.contractAdminUrl ? `명신기공 직인 날인 계약서 보기 (${selectedVendor.contractAdminFileName || '첨부됨'})` : '명신기공 계약서 등록하기'}
+                          >
+                            {selectedVendor.contractAdminUrl ? (
+                              <CheckCircle2 className="h-3 w-3 text-indigo-600" />
+                            ) : (
+                              <span className="w-1.5 h-1.5 rounded-full bg-slate-300" />
+                            )}
+                            <span>명신기공 날인본</span>
+                            <span className={`text-[9px] font-extrabold ${selectedVendor.contractAdminUrl ? 'text-indigo-600' : 'text-slate-400'}`}>
+                              {selectedVendor.contractAdminUrl ? '완료' : '미등록'}
+                            </span>
+                          </button>
+
+                          {/* 거래처 날인 계약서 */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (selectedVendor.contractVendorUrl) {
+                                setPreviewDoc({
+                                  title: `거래처 날인 계약서 (${selectedVendor.name})`,
+                                  url: selectedVendor.contractVendorUrl,
+                                  fileType: selectedVendor.contractVendorFileType || 'unknown',
+                                  fileName: selectedVendor.contractVendorFileName || '거래처_날인_계약서',
+                                  docKey: 'contractVendor'
+                                });
+                              } else {
+                                setIsContractModalOpen(true);
+                              }
+                            }}
+                            className={`px-2.5 py-1 rounded-lg text-[10px] font-bold flex items-center gap-1.5 transition-all active:scale-95 ${
+                              selectedVendor.contractVendorUrl 
+                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 shadow-xs' 
+                                : (selectedVendor.contractAdminUrl && !selectedVendor.contractVendorUrl)
+                                ? 'bg-rose-50 text-rose-700 border border-rose-300 hover:bg-rose-100 ring-2 ring-rose-300/60 animate-pulse'
+                                : 'bg-slate-50 text-slate-400 border border-slate-200 hover:bg-slate-100 hover:text-slate-600'
+                            }`}
+                            title={selectedVendor.contractVendorUrl ? `거래처 날인 계약서 보기 (${selectedVendor.contractVendorFileName || '첨부됨'})` : selectedVendor.contractAdminUrl ? '🚨 거래처 날인 회신 대기 중 (클릭하여 업로드)' : '거래처 계약서 등록'}
+                          >
+                            {selectedVendor.contractVendorUrl ? (
+                              <CheckCircle2 className="h-3 w-3 text-emerald-600" />
+                            ) : (selectedVendor.contractAdminUrl && !selectedVendor.contractVendorUrl) ? (
+                              <Bell className="h-3 w-3 text-rose-600 animate-bounce" />
+                            ) : (
+                              <span className="w-1.5 h-1.5 rounded-full bg-slate-300" />
+                            )}
+                            <span>거래처 날인본</span>
+                            <span className={`text-[9px] font-extrabold ${
+                              selectedVendor.contractVendorUrl 
+                                ? 'text-emerald-600' 
+                                : (selectedVendor.contractAdminUrl && !selectedVendor.contractVendorUrl)
+                                ? 'text-rose-600' 
+                                : 'text-slate-400'
+                            }`}>
+                              {selectedVendor.contractVendorUrl ? '체결' : (selectedVendor.contractAdminUrl && !selectedVendor.contractVendorUrl) ? '회신대기' : '미등록'}
+                            </span>
+                          </button>
                         </div>
                       </div>
                     )}
@@ -4051,6 +4357,41 @@ export default function App() {
 
                   {selectedVendor && (
                     <div className="flex items-center gap-3">
+                      {/* 전자 계약서 관리 버튼 */}
+                      <button 
+                        onClick={() => setIsContractModalOpen(true)}
+                        className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all border active:scale-95 shadow-sm ${
+                          selectedVendor.contractStatus === 'pending_vendor' || (selectedVendor.contractAdminUrl && !selectedVendor.contractVendorUrl)
+                            ? 'bg-rose-50 text-rose-800 border-rose-300 hover:bg-rose-100 ring-2 ring-rose-300/60 animate-pulse'
+                            : selectedVendor.contractStatus === 'completed' || (selectedVendor.contractAdminUrl && selectedVendor.contractVendorUrl)
+                            ? 'bg-indigo-50 text-indigo-800 border-indigo-200 hover:bg-indigo-100'
+                            : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                        }`}
+                        title="전자 계약서 상호 날인 체결 및 현황 관리"
+                      >
+                        <FileSignature className={`h-3.5 w-3.5 ${
+                          selectedVendor.contractStatus === 'pending_vendor' || (selectedVendor.contractAdminUrl && !selectedVendor.contractVendorUrl)
+                            ? 'text-rose-600'
+                            : 'text-indigo-600'
+                        }`} />
+                        <span>전자 계약서</span>
+                        {selectedVendor.contractStatus === 'pending_vendor' || (selectedVendor.contractAdminUrl && !selectedVendor.contractVendorUrl) ? (
+                          <span className="px-1.5 py-0.5 rounded-md text-[10px] font-black bg-rose-600 text-white flex items-center gap-0.5">
+                            <Bell className="h-2.5 w-2.5 animate-bounce" />
+                            회신대기
+                          </span>
+                        ) : selectedVendor.contractStatus === 'completed' || (selectedVendor.contractAdminUrl && selectedVendor.contractVendorUrl) ? (
+                          <span className="px-1.5 py-0.5 rounded-md text-[10px] font-black bg-emerald-600 text-white flex items-center gap-0.5">
+                            <CheckCircle2 className="h-2.5 w-2.5" />
+                            체결완료
+                          </span>
+                        ) : (
+                          <span className="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-slate-200 text-slate-600">
+                            미체결
+                          </span>
+                        )}
+                      </button>
+
                       {/* 거래처 서류 관리 버튼 */}
                       <button 
                         onClick={() => setIsVendorDocsModalOpen(true)}
@@ -4118,6 +4459,64 @@ export default function App() {
                     </div>
                   )}
                 </div>
+              </div>
+
+              {/* CONTRACT SIGNING PENDING ALERT BANNER (거래처에서 계약서 올릴 때까지 알림 지속 발생) */}
+              {selectedVendor && (selectedVendor.contractStatus === 'pending_vendor' || (selectedVendor.contractAdminUrl && !selectedVendor.contractVendorUrl)) && (
+                <div className="px-6 py-3 bg-rose-50/90 border-b border-rose-200">
+                  <motion.div 
+                    initial={{ opacity: 0, y: -6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="flex flex-col md:flex-row md:items-center justify-between gap-3 p-4 bg-white border-2 border-rose-300 rounded-2xl shadow-sm"
+                  >
+                    <div className="flex items-start sm:items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-rose-600 text-white flex items-center justify-center shrink-0 shadow-md shadow-rose-200 animate-pulse">
+                        <Bell className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 text-[10px] font-black uppercase tracking-wider flex items-center gap-1">
+                            <AlertCircle className="h-3 w-3" />
+                            전자 계약서 회신 요청 알림 활성
+                          </span>
+                          <span className="text-xs font-black text-rose-950">
+                            (주)명신기공 직인 날인 계약서가 등록되어 있습니다.
+                          </span>
+                        </div>
+                        <p className="text-xs text-rose-800/90 font-medium mt-1 leading-relaxed">
+                          거래처 직인/인감을 날인하신 후 스캔본을 업로드해 주십시오. 
+                          <span className="text-rose-950 font-bold ml-1">※ 거래처에서 계약서를 올릴 때까지 본 알림이 계속 발생합니다.</span>
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                      <button
+                        type="button"
+                        onClick={() => setPreviewDoc({
+                          title: `(주)명신기공 직인 날인 계약서 (${selectedVendor.name})`,
+                          url: selectedVendor.contractAdminUrl!,
+                          fileType: selectedVendor.contractAdminFileType || 'unknown',
+                          fileName: selectedVendor.contractAdminFileName || '명신기공_날인_계약서',
+                          docKey: 'contractAdmin'
+                        })}
+                        className="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border border-rose-200"
+                      >
+                        <Eye className="h-3.5 w-3.5" />
+                        계약서 원본 확인
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsContractModalOpen(true)}
+                        className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-black transition-all flex items-center gap-1.5 shadow-md shadow-rose-200 active:scale-95"
+                      >
+                        <FileSignature className="h-3.5 w-3.5" />
+                        거래처 날인본 업로드하기
+                      </button>
+                    </div>
+                  </motion.div>
+                </div>
+              )}
 
               {/* VENDOR NOTICE */}
               {selectedVendor?.notice && (
@@ -4197,7 +4596,6 @@ export default function App() {
                   </motion.div>
                 </div>
               )}
-            </div>
 
               {/* TOOLBAR */}
               {canManageItems && (
@@ -7684,10 +8082,631 @@ export default function App() {
                 <p className="text-[11px] text-slate-400">
                   * 첨부된 서류는 보안 클라우드 스토리지에 암호화되어 안전하게 보관됩니다.
                 </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsVendorDocsModalOpen(false);
+                      setIsContractModalOpen(true);
+                    }}
+                    className="px-3.5 py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-xs flex items-center gap-1.5 transition-colors border border-indigo-200"
+                  >
+                    <FileSignature className="h-3.5 w-3.5" />
+                    <span>전자 계약서 관리 이동</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsVendorDocsModalOpen(false)}
+                    className="px-6 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs transition-colors shadow-sm"
+                  >
+                    닫기
+                  </button>
+                </div>
+              </div>
+            </div>
+          </Modal>
+        )}
+
+        {/* CONTRACT MANAGEMENT MODAL (전자 계약 체결 및 직인/도장 날인 관리) */}
+        {isContractModalOpen && selectedVendor && (
+          <Modal
+            key="modal-vendor-contract"
+            title={`전자 계약서 체결 관리 - ${selectedVendor.name}`}
+            onClose={() => setIsContractModalOpen(false)}
+            maxWidth="max-w-4xl"
+          >
+            <div className="space-y-6">
+              {/* Header Status & Workflow Banner */}
+              {(() => {
+                const isAdminUploaded = !!selectedVendor.contractAdminUrl;
+                const isVendorUploaded = !!selectedVendor.contractVendorUrl;
+                const isCompleted = isAdminUploaded && isVendorUploaded;
+                const isPending = isAdminUploaded && !isVendorUploaded;
+
+                return (
+                  <div className="space-y-3">
+                    {/* Status Alert Banner */}
+                    {isCompleted ? (
+                      <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center gap-3.5">
+                        <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-sm">
+                          <CheckCircle2 className="h-5 w-5" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-black text-emerald-900">전자 계약 체결 완료</span>
+                            <span className="text-[10px] bg-emerald-200/60 text-emerald-800 px-2 py-0.5 rounded-full font-bold">상호 날인 완료</span>
+                          </div>
+                          <p className="text-xs text-emerald-700 mt-0.5">
+                            (주)명신기공과 {selectedVendor.name} 양사의 직인/도장 날인 계약서가 모두 정상 등록되었습니다.
+                          </p>
+                        </div>
+                      </div>
+                    ) : isPending ? (
+                      <div className="p-4 bg-rose-50 border-2 border-rose-300 rounded-2xl flex items-start sm:items-center gap-3.5 shadow-sm">
+                        <div className="w-10 h-10 rounded-xl bg-rose-600 text-white flex items-center justify-center shrink-0 shadow-md shadow-rose-200 animate-pulse">
+                          <Bell className="h-5 w-5" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-xs font-black text-rose-950">거래처 직인/인감 날인 회신 대기 중</span>
+                            <span className="text-[10px] bg-rose-600 text-white px-2 py-0.5 rounded-full font-black animate-pulse">
+                              알림 작동 중
+                            </span>
+                          </div>
+                          <p className="text-xs text-rose-800 mt-1 leading-relaxed">
+                            (주)명신기공의 날인 계약서가 업로드되었습니다. <strong>거래처에서 도장을 날인하여 회신 계약서를 올릴 때까지 시스템 전반에서 알림이 지속 발생합니다.</strong>
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex items-center gap-3.5">
+                        <div className="w-10 h-10 rounded-xl bg-slate-200 text-slate-600 flex items-center justify-center shrink-0">
+                          <FileSignature className="h-5 w-5" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-black text-slate-800">계약서 미등록</span>
+                            <span className="text-[10px] bg-slate-200 text-slate-600 px-2 py-0.5 rounded-full font-bold">진행 전</span>
+                          </div>
+                          <p className="text-xs text-slate-500 mt-0.5">
+                            먼저 1단계에서 (주)명신기공 직인이 날인된 계약서 스캔본(PDF/이미지)을 업로드해 주십시오.
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 3-Step Process Flow Indicator */}
+                    <div className="grid grid-cols-3 gap-2 p-3 bg-slate-50/80 rounded-xl border border-slate-100 text-center">
+                      <div className={`p-2 rounded-lg transition-colors ${isAdminUploaded ? 'bg-indigo-50 border border-indigo-200 text-indigo-900' : 'bg-white border border-slate-200 text-slate-500'}`}>
+                        <span className="text-[10px] font-black uppercase block tracking-wider text-slate-400">Step 1</span>
+                        <p className="text-xs font-bold mt-0.5">명신기공 직인 날인</p>
+                        <span className={`text-[10px] font-black inline-block mt-1 ${isAdminUploaded ? 'text-indigo-600' : 'text-slate-400'}`}>
+                          {isAdminUploaded ? '✓ 등록 완료' : '미등록'}
+                        </span>
+                      </div>
+                      <div className={`p-2 rounded-lg transition-colors ${
+                        isVendorUploaded 
+                          ? 'bg-emerald-50 border border-emerald-200 text-emerald-900' 
+                          : isPending 
+                          ? 'bg-rose-50 border border-rose-300 text-rose-900 ring-2 ring-rose-200' 
+                          : 'bg-white border border-slate-200 text-slate-500'
+                      }`}>
+                        <span className="text-[10px] font-black uppercase block tracking-wider text-slate-400">Step 2</span>
+                        <p className="text-xs font-bold mt-0.5">거래처 도장 날인 회신</p>
+                        <span className={`text-[10px] font-black inline-block mt-1 ${
+                          isVendorUploaded ? 'text-emerald-600' : isPending ? 'text-rose-600 font-extrabold animate-pulse' : 'text-slate-400'
+                        }`}>
+                          {isVendorUploaded ? '✓ 회신 완료' : isPending ? '🚨 회신 대기(알림)' : '대기'}
+                        </span>
+                      </div>
+                      <div className={`p-2 rounded-lg transition-colors ${isCompleted ? 'bg-emerald-50 border border-emerald-200 text-emerald-900' : 'bg-white border border-slate-200 text-slate-400'}`}>
+                        <span className="text-[10px] font-black uppercase block tracking-wider text-slate-400">Step 3</span>
+                        <p className="text-xs font-bold mt-0.5">상호 날인 체결 완료</p>
+                        <span className={`text-[10px] font-black inline-block mt-1 ${isCompleted ? 'text-emerald-600' : 'text-slate-400'}`}>
+                          {isCompleted ? '✓ 체결 완료' : '미체결'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* 2 Cards: Admin Contract vs Vendor Contract */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* 1. (주)명신기공 날인 계약서 */}
+                {(() => {
+                  const url = selectedVendor.contractAdminUrl;
+                  const fileName = selectedVendor.contractAdminFileName || '명신기공_날인_계약서';
+                  const fileType = selectedVendor.contractAdminFileType;
+                  const updatedAt = selectedVendor.contractAdminUpdatedAt;
+                  const isDraggingThis = activeContractDragging === 'contractAdmin';
+
+                  return (
+                    <div className={`border rounded-2xl p-4 flex flex-col justify-between transition-all bg-white ${
+                      url ? 'border-indigo-200 shadow-sm' : 'border-slate-200'
+                    }`}>
+                      <div>
+                        <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                          <div className="flex items-center gap-2">
+                            <div className={`p-2 rounded-xl shrink-0 ${url ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-400'}`}>
+                              <Stamp className="h-4 w-4" />
+                            </div>
+                            <div>
+                              <h4 className="text-xs font-black text-slate-900">(주)명신기공 직인 날인 계약서</h4>
+                              <p className="text-[10px] text-slate-400">당사 직인을 날인하여 거래처에 전달할 계약서</p>
+                            </div>
+                          </div>
+                          {url ? (
+                            <span className="text-[10px] font-black text-indigo-700 bg-indigo-50 px-2.5 py-0.5 rounded-full border border-indigo-200 shrink-0">
+                              등록 완료
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2.5 py-0.5 rounded-full shrink-0">
+                              미등록
+                            </span>
+                          )}
+                        </div>
+
+                        {url ? (
+                          <div className="space-y-2.5 my-3.5 p-3 bg-indigo-50/40 rounded-xl border border-indigo-100">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <FileText className="h-4 w-4 text-indigo-600 shrink-0" />
+                              <p className="text-xs font-bold text-slate-800 truncate" title={fileName}>
+                                {fileName}
+                              </p>
+                            </div>
+                            <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono">
+                              <span className="uppercase font-bold px-1.5 py-0.5 bg-white border border-slate-200 rounded text-slate-600">
+                                {fileType === 'pdf' ? 'PDF 계약서' : fileType === 'image' ? '계약서 이미지' : '파일'}
+                              </span>
+                              <span>
+                                {updatedAt?.toDate ? updatedAt.toDate().toLocaleDateString('ko-KR') : '등록일 미상'}
+                              </span>
+                            </div>
+                          </div>
+                        ) : (
+                          <div 
+                            className={`my-3.5 p-5 rounded-xl border border-dashed text-center transition-all cursor-pointer ${
+                              isDraggingThis ? 'border-indigo-500 bg-indigo-50' : 'border-slate-200 bg-slate-50/50 hover:border-indigo-400 hover:bg-white'
+                            }`}
+                            onClick={() => document.getElementById('upload-contract-admin-input')?.click()}
+                            onDragOver={(e) => {
+                              e.preventDefault();
+                              setActiveContractDragging('contractAdmin');
+                            }}
+                            onDragLeave={() => setActiveContractDragging(null)}
+                            onDrop={(e) => {
+                              e.preventDefault();
+                              setActiveContractDragging(null);
+                              const file = e.dataTransfer.files?.[0];
+                              if (file) {
+                                handleUploadContractFile('admin', file);
+                              }
+                            }}
+                          >
+                            <Upload className="h-6 w-6 text-slate-300 mx-auto mb-1" />
+                            <p className="text-[11px] font-bold text-slate-700">명신기공 날인본 파일 선택 또는 드래그</p>
+                            <p className="text-[9px] text-slate-400 mt-0.5">PDF, JPG, PNG 스캔본 (최대 15MB)</p>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="pt-2 border-t border-slate-100 space-y-2">
+                        {url ? (
+                          <div className="space-y-1.5">
+                            <div className="grid grid-cols-2 gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => setPreviewDoc({
+                                  title: `(주)명신기공 날인 계약서 (${selectedVendor.name})`,
+                                  url,
+                                  fileType,
+                                  fileName,
+                                  docKey: 'contractAdmin'
+                                })}
+                                className="py-2 px-2 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-[11px] flex items-center justify-center gap-1 transition-colors"
+                              >
+                                <Eye className="h-3 w-3" />
+                                미리보기
+                              </button>
+                              <a
+                                href={url}
+                                download={fileName}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="py-2 px-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[11px] flex items-center justify-center gap-1 transition-colors text-center"
+                              >
+                                <Download className="h-3 w-3" />
+                                다운로드
+                              </a>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <label
+                                htmlFor="upload-contract-admin-input"
+                                className="flex-1 py-1.5 px-2 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600 font-bold text-[10.5px] flex items-center justify-center gap-1 cursor-pointer transition-colors text-center"
+                              >
+                                <Upload className="h-3 w-3" />
+                                새 파일로 교체
+                              </label>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteContractFile('admin')}
+                                className="py-1.5 px-2.5 rounded-lg text-rose-600 hover:bg-rose-50 border border-rose-100 font-bold text-[10.5px] flex items-center justify-center gap-1 transition-colors"
+                                title="계약서 삭제"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                                삭제
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <label
+                            htmlFor="upload-contract-admin-input"
+                            className="w-full py-2.5 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-sm active:scale-95 transition-all text-center"
+                          >
+                            <Upload className="h-3.5 w-3.5" />
+                            명신기공 날인 계약서 등록하기
+                          </label>
+                        )}
+
+                        <input
+                          id="upload-contract-admin-input"
+                          type="file"
+                          accept=".pdf,image/*"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              handleUploadContractFile('admin', file);
+                            }
+                            e.target.value = '';
+                          }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* 2. 거래처 직인/인감 날인 회신 계약서 */}
+                {(() => {
+                  const url = selectedVendor.contractVendorUrl;
+                  const fileName = selectedVendor.contractVendorFileName || '거래처_날인_계약서';
+                  const fileType = selectedVendor.contractVendorFileType;
+                  const updatedAt = selectedVendor.contractVendorUpdatedAt;
+                  const isAdminUploaded = !!selectedVendor.contractAdminUrl;
+                  const isPending = isAdminUploaded && !url;
+                  const isDraggingThis = activeContractDragging === 'contractVendor';
+
+                  return (
+                    <div className={`border rounded-2xl p-4 flex flex-col justify-between transition-all bg-white ${
+                      url 
+                        ? 'border-emerald-300 shadow-sm' 
+                        : isPending 
+                        ? 'border-rose-300 bg-rose-50/20 ring-2 ring-rose-200' 
+                        : 'border-slate-200'
+                    }`}>
+                      <div>
+                        <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                          <div className="flex items-center gap-2">
+                            <div className={`p-2 rounded-xl shrink-0 ${
+                              url 
+                                ? 'bg-emerald-100 text-emerald-700' 
+                                : isPending 
+                                ? 'bg-rose-100 text-rose-700 animate-pulse' 
+                                : 'bg-slate-100 text-slate-400'
+                            }`}>
+                              <Stamp className="h-4 w-4" />
+                            </div>
+                            <div>
+                              <h4 className="text-xs font-black text-slate-900">거래처 직인/인감 날인 회신본</h4>
+                              <p className="text-[10px] text-slate-400">거래처에서 도장을 날인하여 회신 업로드한 계약서</p>
+                            </div>
+                          </div>
+                          {url ? (
+                            <span className="text-[10px] font-black text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200 shrink-0">
+                              체결 완료
+                            </span>
+                          ) : isPending ? (
+                            <span className="text-[10px] font-black text-rose-700 bg-rose-50 px-2.5 py-0.5 rounded-full border border-rose-300 shrink-0 flex items-center gap-1 animate-pulse">
+                              <Bell className="h-2.5 w-2.5" />
+                              회신 대기 (알림)
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2.5 py-0.5 rounded-full shrink-0">
+                              미등록
+                            </span>
+                          )}
+                        </div>
+
+                        {url ? (
+                          <div className="space-y-2.5 my-3.5 p-3 bg-emerald-50/40 rounded-xl border border-emerald-100">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <FileText className="h-4 w-4 text-emerald-600 shrink-0" />
+                              <p className="text-xs font-bold text-slate-800 truncate" title={fileName}>
+                                {fileName}
+                              </p>
+                            </div>
+                            <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono">
+                              <span className="uppercase font-bold px-1.5 py-0.5 bg-white border border-slate-200 rounded text-slate-600">
+                                {fileType === 'pdf' ? 'PDF 계약서' : fileType === 'image' ? '계약서 이미지' : '파일'}
+                              </span>
+                              <span>
+                                {updatedAt?.toDate ? updatedAt.toDate().toLocaleDateString('ko-KR') : '등록일 미상'}
+                              </span>
+                            </div>
+                          </div>
+                        ) : (
+                          <div 
+                            className={`my-3.5 p-5 rounded-xl border border-dashed text-center transition-all cursor-pointer ${
+                              isDraggingThis 
+                                ? 'border-emerald-500 bg-emerald-50' 
+                                : isPending 
+                                ? 'border-rose-300 bg-white hover:border-rose-400' 
+                                : 'border-slate-200 bg-slate-50/50 hover:border-emerald-400 hover:bg-white'
+                            }`}
+                            onClick={() => document.getElementById('upload-contract-vendor-input')?.click()}
+                            onDragOver={(e) => {
+                              e.preventDefault();
+                              setActiveContractDragging('contractVendor');
+                            }}
+                            onDragLeave={() => setActiveContractDragging(null)}
+                            onDrop={(e) => {
+                              e.preventDefault();
+                              setActiveContractDragging(null);
+                              const file = e.dataTransfer.files?.[0];
+                              if (file) {
+                                handleUploadContractFile('vendor', file);
+                              }
+                            }}
+                          >
+                            <Upload className={`h-6 w-6 mx-auto mb-1 ${isPending ? 'text-rose-400' : 'text-slate-300'}`} />
+                            <p className="text-[11px] font-bold text-slate-700">거래처 날인본 파일 선택 또는 드래그</p>
+                            <p className={`text-[9px] mt-0.5 ${isPending ? 'text-rose-600 font-bold' : 'text-slate-400'}`}>
+                              {isPending ? '※ 거래처 날인본 등록 시 알림이 자동 해제됩니다.' : 'PDF, JPG, PNG 스캔본 (최대 15MB)'}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="pt-2 border-t border-slate-100 space-y-2">
+                        {url ? (
+                          <div className="space-y-1.5">
+                            <div className="grid grid-cols-2 gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => setPreviewDoc({
+                                  title: `거래처 날인 계약서 (${selectedVendor.name})`,
+                                  url,
+                                  fileType,
+                                  fileName,
+                                  docKey: 'contractVendor'
+                                })}
+                                className="py-2 px-2 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold text-[11px] flex items-center justify-center gap-1 transition-colors"
+                              >
+                                <Eye className="h-3 w-3" />
+                                미리보기
+                              </button>
+                              <a
+                                href={url}
+                                download={fileName}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="py-2 px-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[11px] flex items-center justify-center gap-1 transition-colors text-center"
+                              >
+                                <Download className="h-3 w-3" />
+                                다운로드
+                              </a>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <label
+                                htmlFor="upload-contract-vendor-input"
+                                className="flex-1 py-1.5 px-2 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600 font-bold text-[10.5px] flex items-center justify-center gap-1 cursor-pointer transition-colors text-center"
+                              >
+                                <Upload className="h-3 w-3" />
+                                새 파일로 교체
+                              </label>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteContractFile('vendor')}
+                                className="py-1.5 px-2.5 rounded-lg text-rose-600 hover:bg-rose-50 border border-rose-100 font-bold text-[10.5px] flex items-center justify-center gap-1 transition-colors"
+                                title="계약서 삭제"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                                삭제
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <label
+                            htmlFor="upload-contract-vendor-input"
+                            className={`w-full py-2.5 px-3 rounded-xl text-white font-black text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-sm active:scale-95 transition-all text-center ${
+                              isPending ? 'bg-rose-600 hover:bg-rose-700 shadow-rose-200' : 'bg-emerald-600 hover:bg-emerald-700'
+                            }`}
+                          >
+                            <Upload className="h-3.5 w-3.5" />
+                            거래처 날인본 등록하기
+                          </label>
+                        )}
+
+                        <input
+                          id="upload-contract-vendor-input"
+                          type="file"
+                          accept=".pdf,image/*"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              handleUploadContractFile('vendor', file);
+                            }
+                            e.target.value = '';
+                          }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* 계약 특약사항 및 관리 메모 */}
+              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-black text-slate-800 flex items-center gap-1.5">
+                    <FileText className="h-3.5 w-3.5 text-slate-500" />
+                    계약 특약사항 및 관리 메모
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-medium">계약 유효기간, 대금결제 조건, 특약사항 등</span>
+                </div>
+                <textarea
+                  value={contractNoteInput}
+                  onChange={(e) => setContractNoteInput(e.target.value)}
+                  placeholder="예: 계약기간 2025.01.01 ~ 2025.12.31, 전자어음 90일 결제 조건, 단가변동 시 사전 30일 서면 통보 등 특약사항을 입력하세요."
+                  rows={3}
+                  className="w-full text-xs p-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none leading-relaxed resize-none"
+                />
+                <div className="flex items-center justify-between pt-1">
+                  <span className="text-[10px] text-slate-400">
+                    * 작성 후 저장 버튼을 누르면 본 거래처의 계약 정보에 저장됩니다.
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleSaveContractNote}
+                    disabled={isSavingContractNote}
+                    className="px-4 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-black text-xs flex items-center gap-1.5 transition-all shadow-sm active:scale-95 disabled:opacity-50"
+                  >
+                    {isSavingContractNote ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                    메모 저장
+                  </button>
+                </div>
+              </div>
+
+              {isUploadingContract && (
+                <div className="p-4 bg-indigo-50 rounded-xl border border-indigo-200 flex items-center justify-center gap-3">
+                  <Loader2 className="h-5 w-5 text-indigo-600 animate-spin" />
+                  <span className="text-xs font-bold text-indigo-900">계약서 파일 저장 및 클라우드 업로드 처리 중입니다...</span>
+                </div>
+              )}
+
+              {/* Bottom Footer */}
+              <div className="flex items-center justify-between pt-4 border-t border-slate-100">
+                <div className="flex items-center gap-1.5 text-[11px] text-slate-400">
+                  <ShieldCheck className="h-3.5 w-3.5 text-slate-400" />
+                  <span>업로드된 전자 계약서는 보안 클라우드 스토리지에 암호화 보관됩니다.</span>
+                </div>
                 <button
                   type="button"
-                  onClick={() => setIsVendorDocsModalOpen(false)}
+                  onClick={() => setIsContractModalOpen(false)}
                   className="px-6 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs transition-colors shadow-sm"
+                >
+                  닫기
+                </button>
+              </div>
+            </div>
+          </Modal>
+        )}
+
+        {/* PENDING CONTRACTS LIST MODAL (계약서 미회신 업체 목록 모달) */}
+        {isContractPendingListModalOpen && (
+          <Modal
+            key="modal-pending-contracts-list"
+            title={`계약서 직인/인감 날인 회신 대기 현황 (${pendingContractVendors.length}개 업체)`}
+            onClose={() => setIsContractPendingListModalOpen(false)}
+            maxWidth="max-w-3xl"
+          >
+            <div className="space-y-4">
+              <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl flex items-start gap-3">
+                <Bell className="h-4 w-4 text-rose-600 shrink-0 mt-0.5 animate-bounce" />
+                <div className="text-xs text-rose-800 leading-relaxed">
+                  (주)명신기공 직인 날인 계약서가 등록되었으나 거래처에서 아직 본인 도장을 날인하여 회신하지 않은 업체들입니다. <strong>거래처에서 회신 계약서를 업로드할 때까지 알림이 유지됩니다.</strong>
+                </div>
+              </div>
+
+              {pendingContractVendors.length === 0 ? (
+                <div className="p-12 text-center bg-slate-50 rounded-2xl border border-slate-100">
+                  <CheckCircle2 className="h-10 w-10 text-emerald-500 mx-auto mb-2" />
+                  <h4 className="text-sm font-black text-slate-800">모든 계약서의 거래처 날인 회신이 완료되었습니다!</h4>
+                  <p className="text-xs text-slate-400 mt-1">대기 중인 전자 계약서가 없습니다.</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-slate-100 border border-slate-200 rounded-2xl overflow-hidden bg-white shadow-xs max-h-[60vh] overflow-y-auto">
+                  {pendingContractVendors.map((vendor, idx) => (
+                    <div 
+                      key={`pending-contract-vendor-${vendor.id}`}
+                      className="p-4 hover:bg-slate-50 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                    >
+                      <div className="flex items-start gap-3 min-w-0">
+                        <span className="text-xs font-mono font-bold text-slate-400 w-5 tabular-nums shrink-0 mt-0.5">
+                          {idx + 1}
+                        </span>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h4 className="text-sm font-black text-slate-900">{vendor.name}</h4>
+                            <span className="px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 text-[10px] font-black flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                              회신 대기 중
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-3 text-xs text-slate-500 mt-1 flex-wrap">
+                            <span>대표자: <strong className="text-slate-700">{vendor.representative || '-'}</strong></span>
+                            <span>전화: <strong className="text-slate-700">{vendor.phone || '-'}</strong></span>
+                            {vendor.contractAdminUpdatedAt?.toDate && (
+                              <span className="text-[11px] text-slate-400">
+                                명신기공 날인일: {vendor.contractAdminUpdatedAt.toDate().toLocaleDateString('ko-KR')}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                        <button
+                          type="button"
+                          onClick={(e) => copyVendorLink(vendor.id, e)}
+                          className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 text-xs font-bold transition-all flex items-center gap-1 shadow-xs"
+                          title="거래처 직접 접속 링크 복사 (카카오톡/문자 발송용)"
+                        >
+                          <LinkIcon className="h-3 w-3" />
+                          링크 복사
+                        </button>
+                        {vendor.contractAdminUrl && (
+                          <button
+                            type="button"
+                            onClick={() => setPreviewDoc({
+                              title: `(주)명신기공 직인 날인 계약서 (${vendor.name})`,
+                              url: vendor.contractAdminUrl!,
+                              fileType: vendor.contractAdminFileType || 'unknown',
+                              fileName: vendor.contractAdminFileName || '명신기공_날인_계약서',
+                              docKey: 'contractAdmin'
+                            })}
+                            className="px-2.5 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold transition-all flex items-center gap-1"
+                          >
+                            <Eye className="h-3 w-3" />
+                            계약서
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedVendor(vendor);
+                            setViewMode('detail');
+                            setIsContractPendingListModalOpen(false);
+                            setIsContractModalOpen(true);
+                          }}
+                          className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-black transition-all flex items-center gap-1 shadow-xs active:scale-95"
+                        >
+                          <FileSignature className="h-3 w-3" />
+                          계약서 관리
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="flex items-center justify-end pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsContractPendingListModalOpen(false)}
+                  className="px-6 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition-colors"
                 >
                   닫기
                 </button>

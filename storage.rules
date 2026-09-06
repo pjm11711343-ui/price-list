@@ -13,6 +13,10 @@ service firebase.storage {
       allow read: if true;
       allow write: if true;
     }
+    match /contracts/{fileName} {
+      allow read: if true;
+      allow write: if true;
+    }
     // Default deny
     match /{allPaths=**} {
       allow read, write: if false;

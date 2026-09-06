@@ -65,7 +65,17 @@
         "promissoryNoteUrl": { "type": "string" },
         "promissoryNoteFileName": { "type": "string" },
         "promissoryNoteFileType": { "type": "string" },
-        "promissoryNoteUpdatedAt": { "type": "string", "format": "date-time" }
+        "promissoryNoteUpdatedAt": { "type": "string", "format": "date-time" },
+        "contractAdminUrl": { "type": "string" },
+        "contractAdminFileName": { "type": "string" },
+        "contractAdminFileType": { "type": "string" },
+        "contractAdminUpdatedAt": { "type": "string", "format": "date-time" },
+        "contractVendorUrl": { "type": "string" },
+        "contractVendorFileName": { "type": "string" },
+        "contractVendorFileType": { "type": "string" },
+        "contractVendorUpdatedAt": { "type": "string", "format": "date-time" },
+        "contractStatus": { "type": "string" },
+        "contractNote": { "type": "string" }
       },
       "required": ["name"]
     },
