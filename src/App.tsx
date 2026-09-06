@@ -56,7 +56,7 @@ import {
   Stamp,
   Bell,
   AlertCircle,
-  TrendingUp
+  Clock
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -95,7 +95,6 @@ import {
 } from 'firebase/storage';
 import { db, auth, storage } from './lib/firebase';
 import { Vendor, PriceItem, ComparisonRow, PendingPriceUpdate } from './types';
-import { TopFluctuationReport } from './components/TopFluctuationReport';
 import { ALL_VENDORS } from './data/seedData';
 
 // Error Handling Types
@@ -619,21 +618,6 @@ export default function App() {
   const [activeCategory, setActiveCategory] = useState('전체');
   const [selectedMatrixRow, setSelectedMatrixRow] = useState<any>(null);
   const [showVarianceChart, setShowVarianceChart] = useState(false);
-  const [showTopFluctuationReport, setShowTopFluctuationReport] = useState(true);
-  const [highlightedMatrixKey, setHighlightedMatrixKey] = useState<string | null>(null);
-
-  const handleSelectFluctuationRow = (itemName: string, spec: string) => {
-    const key = `${itemName}_${spec || ''}`;
-    setHighlightedMatrixKey(key);
-    const rowElId = `matrix-row-${encodeURIComponent(itemName)}-${encodeURIComponent(spec || '')}`;
-    const el = document.getElementById(rowElId);
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
-    setTimeout(() => {
-      setHighlightedMatrixKey(prev => prev === key ? null : prev);
-    }, 4000);
-  };
 
   const categoryVarianceData = useMemo(() => {
     const grouped: Record<string, { category: string; prices: number[] }> = {};
@@ -3572,19 +3556,7 @@ export default function App() {
                          </h1>
                          <p className="text-[11px] text-slate-400 font-medium tracking-tight mt-1">업체별 동일 품명/규격 상품의 단가를 한눈에 비교합니다.</p>
                        </div>
-                        <div className="flex items-center gap-2">
-                          <button 
-                            onClick={() => setShowTopFluctuationReport(!showTopFluctuationReport)}
-                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all border ${
-                              showTopFluctuationReport 
-                              ? 'bg-rose-600 border-rose-500 text-white shadow-md shadow-rose-200' 
-                              : 'bg-white border-slate-200 text-slate-600 hover:border-rose-400 hover:text-rose-600 shadow-xs'
-                            }`}
-                            title="특정 기간 동안의 단가 변동폭이 가장 큰 상위 5개 품목 리포트 토글"
-                          >
-                            <TrendingUp className="h-3 w-3" />
-                            주요 변동 품목 리포트
-                          </button>
+                       <div className="flex items-center gap-2">
                           <button 
                             onClick={() => setShowVarianceChart(!showVarianceChart)}
                             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all border ${
@@ -3619,16 +3591,6 @@ export default function App() {
                      </div>
                    </div>
                 </header>
-                
-                {/* 4. TOP FLUCTUATION REPORT (상단 주요 변동 품목 리포트) */}
-                {showTopFluctuationReport && (
-                  <TopFluctuationReport
-                    allPrices={allPrices}
-                    matrixCategory={matrixCategory}
-                    searchTerm={searchTerm}
-                    onSelectRow={handleSelectFluctuationRow}
-                  />
-                )}
                 
                 {showVarianceChart && categoryVarianceData.length > 0 && (
                    <motion.div 
@@ -3732,20 +3694,9 @@ export default function App() {
                                   const priceEntries = Object.values(row.prices) as any[];
                                   const priceValues = priceEntries.map(p => p.unitPrice);
                                   const minPrice = priceValues.length > 0 ? Math.min(...priceValues) : null;
-                                  const rowKey = `${row.itemName}_${row.spec || ''}`;
-                                  const isHighlighted = highlightedMatrixKey === rowKey;
-                                  const rowElementId = `matrix-row-${encodeURIComponent(row.itemName)}-${encodeURIComponent(row.spec || '')}`;
                                 
                                 return (
-                                  <tr 
-                                    key={`matrix-row-${idx}`} 
-                                    id={rowElementId}
-                                    className={`transition-all h-10 group ${
-                                      isHighlighted 
-                                        ? 'bg-amber-100/90 ring-2 ring-amber-400 ring-inset shadow-md' 
-                                        : 'hover:bg-indigo-50/30'
-                                    }`}
-                                  >
+                                  <tr key={`matrix-row-${idx}`} className="hover:bg-indigo-50/30 transition-colors h-10 group">
                                     <td className="px-6 font-bold text-slate-800 border-r border-slate-100 sticky left-0 bg-white group-hover:bg-indigo-50/50 z-10 transition-colors shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
                                       <div className="flex items-center justify-between">
                                         <div className="flex flex-col truncate">
@@ -4409,6 +4360,21 @@ export default function App() {
                         }`}>
                           {[selectedVendor.businessCertUrl, selectedVendor.bankbookUrl, selectedVendor.promissoryNoteUrl].filter(Boolean).length}/3
                         </span>
+                      </button>
+
+                      <button 
+                        onClick={() => setIsContractModalOpen(true)}
+                        className="flex items-center gap-2 px-4 py-2.5 bg-white text-slate-700 rounded-xl text-xs font-bold hover:bg-slate-50 transition-all border border-slate-200 active:scale-95 shadow-sm"
+                        title="전자 계약서 관리 (상호 날인 및 체결 현황)"
+                      >
+                        <FileSignature className={`h-3.5 w-3.5 ${
+                          (selectedVendor.contractAdminUrl && selectedVendor.contractVendorUrl) ? 'text-emerald-600' : 
+                          selectedVendor.contractAdminUrl ? 'text-rose-600' : 'text-slate-400'
+                        }`} />
+                        <span>전자 계약서</span>
+                        {selectedVendor.contractAdminUrl && !selectedVendor.contractVendorUrl && (
+                          <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse ml-0.5" />
+                        )}
                       </button>
 
                       {selectedVendor.priceTableUrl && (
@@ -8269,15 +8235,16 @@ export default function App() {
                             className={`my-3.5 p-5 rounded-xl border border-dashed text-center transition-all cursor-pointer ${
                               isDraggingThis ? 'border-indigo-500 bg-indigo-50' : 'border-slate-200 bg-slate-50/50 hover:border-indigo-400 hover:bg-white'
                             }`}
-                            onClick={() => document.getElementById('upload-contract-admin-input')?.click()}
+                            onClick={() => isAdminMode && document.getElementById('upload-contract-admin-input')?.click()}
                             onDragOver={(e) => {
                               e.preventDefault();
-                              setActiveContractDragging('contractAdmin');
+                              if (isAdminMode) setActiveContractDragging('contractAdmin');
                             }}
                             onDragLeave={() => setActiveContractDragging(null)}
                             onDrop={(e) => {
                               e.preventDefault();
                               setActiveContractDragging(null);
+                              if (!isAdminMode) return;
                               const file = e.dataTransfer.files?.[0];
                               if (file) {
                                 handleUploadContractFile('admin', file);
@@ -8285,8 +8252,10 @@ export default function App() {
                             }}
                           >
                             <Upload className="h-6 w-6 text-slate-300 mx-auto mb-1" />
-                            <p className="text-[11px] font-bold text-slate-700">명신기공 날인본 파일 선택 또는 드래그</p>
-                            <p className="text-[9px] text-slate-400 mt-0.5">PDF, JPG, PNG 스캔본 (최대 15MB)</p>
+                            <p className="text-[11px] font-bold text-slate-700">
+                              {isAdminMode ? '명신기공 날인본 파일 선택 또는 드래그' : '파일이 아직 등록되지 않았습니다'}
+                            </p>
+                            {isAdminMode && <p className="text-[9px] text-slate-400 mt-0.5">PDF, JPG, PNG 스캔본 (최대 15MB)</p>}
                           </div>
                         )}
                       </div>
@@ -8298,7 +8267,7 @@ export default function App() {
                               <button
                                 type="button"
                                 onClick={() => setPreviewDoc({
-                                  title: `(주)명신기공 날인 계약서 (${selectedVendor.name})`,
+                                  title: `(주)명신기공 직인 날인 계약서 (${selectedVendor.name})`,
                                   url,
                                   fileType,
                                   fileName,
@@ -8320,26 +8289,28 @@ export default function App() {
                                 다운로드
                               </a>
                             </div>
-                            <div className="flex items-center gap-1.5">
-                              <label
-                                htmlFor="upload-contract-admin-input"
-                                className="flex-1 py-1.5 px-2 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600 font-bold text-[10.5px] flex items-center justify-center gap-1 cursor-pointer transition-colors text-center"
-                              >
-                                <Upload className="h-3 w-3" />
-                                새 파일로 교체
-                              </label>
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteContractFile('admin')}
-                                className="py-1.5 px-2.5 rounded-lg text-rose-600 hover:bg-rose-50 border border-rose-100 font-bold text-[10.5px] flex items-center justify-center gap-1 transition-colors"
-                                title="계약서 삭제"
-                              >
-                                <Trash2 className="h-3 w-3" />
-                                삭제
-                              </button>
-                            </div>
+                            {isAdminMode && (
+                              <div className="flex items-center gap-1.5">
+                                <label
+                                  htmlFor="upload-contract-admin-input"
+                                  className="flex-1 py-1.5 px-2 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600 font-bold text-[10.5px] flex items-center justify-center gap-1 cursor-pointer transition-colors text-center"
+                                >
+                                  <Upload className="h-3 w-3" />
+                                  새 파일로 교체
+                                </label>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteContractFile('admin')}
+                                  className="py-1.5 px-2.5 rounded-lg text-rose-600 hover:bg-rose-50 border border-rose-100 font-bold text-[10.5px] flex items-center justify-center gap-1 transition-colors"
+                                  title="계약서 삭제"
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                  삭제
+                                </button>
+                              </div>
+                            )}
                           </div>
-                        ) : (
+                        ) : isAdminMode ? (
                           <label
                             htmlFor="upload-contract-admin-input"
                             className="w-full py-2.5 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-sm active:scale-95 transition-all text-center"
@@ -8347,6 +8318,11 @@ export default function App() {
                             <Upload className="h-3.5 w-3.5" />
                             명신기공 날인 계약서 등록하기
                           </label>
+                        ) : (
+                          <div className="w-full py-2.5 px-3 rounded-xl bg-slate-100 text-slate-400 font-bold text-xs flex items-center justify-center gap-1.5 border border-slate-200">
+                            <Clock className="h-3.5 w-3.5 text-slate-300" />
+                            관리자 등록 대기 중
+                          </div>
                         )}
 
                         <input
@@ -8354,6 +8330,7 @@ export default function App() {
                           type="file"
                           accept=".pdf,image/*"
                           className="hidden"
+                          disabled={!isAdminMode}
                           onChange={(e) => {
                             const file = e.target.files?.[0];
                             if (file) {
@@ -8559,23 +8536,26 @@ export default function App() {
                 <textarea
                   value={contractNoteInput}
                   onChange={(e) => setContractNoteInput(e.target.value)}
-                  placeholder="예: 계약기간 2025.01.01 ~ 2025.12.31, 전자어음 90일 결제 조건, 단가변동 시 사전 30일 서면 통보 등 특약사항을 입력하세요."
+                  disabled={!isAdminMode}
+                  placeholder={isAdminMode ? "예: 계약기간 2025.01.01 ~ 2025.12.31, 전자어음 90일 결제 조건, 단가변동 시 사전 30일 서면 통보 등 특약사항을 입력하세요." : "관리자가 작성한 계약 특약사항 및 메모가 표시됩니다."}
                   rows={3}
-                  className="w-full text-xs p-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none leading-relaxed resize-none"
+                  className={`w-full text-xs p-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none leading-relaxed resize-none ${!isAdminMode ? 'bg-slate-50 text-slate-500' : ''}`}
                 />
                 <div className="flex items-center justify-between pt-1">
                   <span className="text-[10px] text-slate-400">
-                    * 작성 후 저장 버튼을 누르면 본 거래처의 계약 정보에 저장됩니다.
+                    {isAdminMode ? "* 작성 후 저장 버튼을 누르면 본 거래처의 계약 정보에 저장됩니다." : "* 본 메모는 관리자 전용 편집 영역입니다."}
                   </span>
-                  <button
-                    type="button"
-                    onClick={handleSaveContractNote}
-                    disabled={isSavingContractNote}
-                    className="px-4 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-black text-xs flex items-center gap-1.5 transition-all shadow-sm active:scale-95 disabled:opacity-50"
-                  >
-                    {isSavingContractNote ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-                    메모 저장
-                  </button>
+                  {isAdminMode && (
+                    <button
+                      type="button"
+                      onClick={handleSaveContractNote}
+                      disabled={isSavingContractNote}
+                      className="px-4 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-black text-xs flex items-center gap-1.5 transition-all shadow-sm active:scale-95 disabled:opacity-50"
+                    >
+                      {isSavingContractNote ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                      메모 저장
+                    </button>
+                  )}
                 </div>
               </div>
 

@@ -98,28 +98,3 @@ export interface PendingPriceUpdate {
   requestedAt: any;
   approvedAt?: any;
 }
-
-export type FluctuationPeriodType = '1m' | '3m' | '6m' | '1y' | 'all' | 'custom';
-export type FluctuationSortMode = 'absAmount' | 'rate' | 'increase' | 'decrease';
-
-export interface PriceFluctuationItem {
-  key: string; // unique item key (${itemName}_${spec})
-  itemName: string;
-  spec: string;
-  unit: string;
-  category: string;
-  primaryVendorId: string;
-  primaryVendorName: string;
-  allVendorNames: string[];
-  startPrice: number;
-  endPrice: number;
-  priceDiff: number; // endPrice - startPrice
-  absDiff: number; // Math.abs(priceDiff)
-  percentDiff: number; // ((endPrice - startPrice) / startPrice) * 100
-  direction: 'up' | 'down' | 'same';
-  minPrice: number;
-  maxPrice: number;
-  lastUpdated?: any;
-  changeCount: number;
-  historyTimeline: { price: number; date: any; label?: string }[];
-}
