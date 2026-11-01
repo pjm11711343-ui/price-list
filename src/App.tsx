@@ -655,7 +655,7 @@ export default function App() {
              cell.value = {
                richText: [
                  { text: `₩${rowPriceEntry.value.toLocaleString()}`, font: { name: 'Malgun Gothic', size: 10, bold: true } },
-                 { text: `\n${rateText} ${rowPriceEntry.maker ? `(${rowPriceEntry.maker})` : ''}`, font: { name: 'Malgun Gothic', size: 10, color: { argb: 'FF94A3B8' } } }
+                 { text: `\n${rateText} ${rowPriceEntry.maker ? `(${rowPriceEntry.maker})` : ''}`, font: { name: 'Malgun Gothic', size: 9, color: { argb: 'FF94A3B8' } } }
                ]
              };
           } else {
@@ -3911,11 +3911,11 @@ export default function App() {
                                                 )}
                                               </div>
                                               <div className="flex items-center justify-center gap-1 leading-none whitespace-nowrap text-center py-0.5 w-full overflow-hidden">
-                                                <span className="text-[10.5px] font-black text-indigo-400 opacity-70 shrink-0">
+                                                <span className="nego-rate-compact text-[9px] font-black text-indigo-400 opacity-70 shrink-0">
                                                    {entry.negoType === 'sts_pipe' ? `STS ${entry.negoRate}` : `${entry.negoRate}%`}
                                                 </span>
                                                 {entry.maker && (
-                                                  <span className="text-[10.5px] text-slate-400 font-medium truncate max-w-[60px]" title={entry.maker}>
+                                                  <span className="maker-name-compact text-[9px] text-slate-400 font-medium truncate max-w-[65px]" title={entry.maker}>
                                                     {entry.maker}
                                                   </span>
                                                 )}
@@ -4105,7 +4105,7 @@ export default function App() {
                                     {/* Maker */}
                                     <td className="px-4 py-4 text-center">
                                       {vEntry.maker ? (
-                                        <span className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded text-[10.5px] font-semibold border border-slate-200">
+                                        <span className="maker-name-compact bg-slate-100 text-slate-700 px-2 py-0.5 rounded text-[9px] font-semibold border border-slate-200">
                                           {vEntry.maker}
                                         </span>
                                       ) : (
@@ -4121,9 +4121,9 @@ export default function App() {
                                     {/* Nego Rate */}
                                     <td className="px-4 py-4 text-center font-bold">
                                       {vEntry.negoType === 'sts_pipe' ? (
-                                        <span className="text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full text-[10px]">STS {vEntry.negoRate}</span>
+                                        <span className="nego-rate-compact text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full text-[9px]">STS {vEntry.negoRate}</span>
                                       ) : (
-                                        <span className="text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full text-[10px]">{vEntry.negoRate}% 할인</span>
+                                        <span className="nego-rate-compact text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full text-[9px]">{vEntry.negoRate}% 할인</span>
                                       )}
                                     </td>
 

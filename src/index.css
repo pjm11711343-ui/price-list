@@ -1,1 +1,6 @@
 @import "tailwindcss";
+
+#main-content-view tbody tr .nego-rate-compact,
+#main-content-view tbody tr .maker-name-compact {
+  font-size: 9px !important;
+}
