@@ -3680,12 +3680,17 @@ export default function App() {
                               <tr className="h-12">
                                 <th className="px-2 text-left font-bold border-r border-slate-800 sticky left-0 bg-slate-900 z-30" style={{ width: '100px' }}>구분 품명</th>
                                 <th className="px-2 text-left font-bold border-r border-slate-800" style={{ width: '80px' }}>규격</th>
-                                <th className="px-1 text-center font-bold border-r border-slate-800" style={{ width: '50px' }}>단위</th>
+                                <th className="px-1 text-center font-bold border-r border-slate-800" style={{ width: '50px', minWidth: '50px', maxWidth: '50px' }}>단위</th>
                                 {filteredVendors.map(vendor => (
-                                  <th key={`matrix-header-th-${vendor.id}`} className="px-1 text-center font-bold border-r border-slate-800 bg-slate-800/50 min-w-[80px]">
-                                    {vendor.name}
+                                  <th 
+                                    key={`matrix-header-th-${vendor.id}`} 
+                                    className="px-1 text-center font-bold border-r border-slate-800 bg-slate-800/50" 
+                                    style={{ width: '80px', minWidth: '80px', maxWidth: '80px' }}
+                                  >
+                                    <div className="truncate px-1" title={vendor.name}>{vendor.name}</div>
                                   </th>
                                 ))}
+                                <th className="bg-slate-900 border-none"></th> {/* Spacer to absorb extra width */}
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
@@ -3712,8 +3717,8 @@ export default function App() {
                                         </button>
                                       </div>
                                     </td>
-                                    <td className="px-2 text-slate-500 font-bold border-r border-slate-100 truncate">{row.spec}</td>
-                                    <td className="px-1 text-center text-slate-400 border-r border-slate-100">{row.unit}</td>
+                                    <td className="px-2 text-slate-500 font-bold border-r border-slate-100 truncate" style={{ width: '80px', minWidth: '80px', maxWidth: '80px' }}>{row.spec}</td>
+                                    <td className="px-1 text-center text-slate-400 border-r border-slate-100" style={{ width: '50px', minWidth: '50px', maxWidth: '50px' }}>{row.unit}</td>
                                     {filteredVendors.map(vendor => {
                                       const entry = row.prices[vendor.id];
                                       const priceValue = entry?.unitPrice;
@@ -3725,10 +3730,11 @@ export default function App() {
                                           className={`px-1 text-center border-r border-slate-100 font-mono transition-all ${
                                             isMin ? 'bg-emerald-50 text-emerald-700 font-black' : 'text-slate-600'
                                           }`}
+                                          style={{ width: '80px', minWidth: '80px', maxWidth: '80px' }}
                                         >
                                           {entry ? (
                                             <div className="flex flex-col items-center">
-                                              <div className="flex items-center gap-1 leading-tight">
+                                              <div className="flex items-center gap-1 leading-tight text-[10.5px]">
                                                 <span>₩{entry.unitPrice.toLocaleString()}</span>
                                                 {entry.targetPrice !== undefined && entry.unitPrice > entry.targetPrice && (
                                                   <AlertTriangle className="h-2.5 w-2.5 text-rose-500 animate-pulse shrink-0" title={`목표단가(₩${entry.targetPrice?.toLocaleString()})를 초과했습니다!`} />
@@ -3742,11 +3748,12 @@ export default function App() {
                                               </span>
                                             </div>
                                           ) : (
-                                            <span className="text-slate-200">데이터 없음</span>
+                                            <span className="text-slate-200 text-[10px]">미등록</span>
                                           )}
                                         </td>
                                       );
                                     })}
+                                    <td className="border-none bg-slate-50/10"></td> {/* Spacer cell */}
                                   </tr>
                                 );
                               })}
@@ -5336,7 +5343,11 @@ export default function App() {
                       return (
                         <tr 
                           key={`price-row-${item.id}`} 
-                          className={`hover:bg-indigo-50/20 group transition-colors h-[34px] ${selectedPriceIds.has(item.id) ? 'bg-indigo-50/10' : ''}`}
+                          className={`group transition-all h-[38px] relative ${
+                            selectedPriceIds.has(item.id) 
+                              ? 'bg-indigo-50/70 border-y-2 border-indigo-200 shadow-[inset_3px_0_0_0_#4f46e5] z-10' 
+                              : 'bg-white hover:bg-indigo-50/20 border-y border-slate-100'
+                          }`}
                         >
                           <td className="px-4 text-center">
                             <input 
