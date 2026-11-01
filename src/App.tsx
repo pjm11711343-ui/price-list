@@ -3675,14 +3675,14 @@ export default function App() {
                    ) : (
                      <div className="border border-slate-200 rounded-2xl overflow-hidden shadow-xl bg-white">
                         <div className="overflow-x-auto">
-                          <table className="w-full text-[11px] border-collapse font-medium min-w-[2000px]">
+                          <table className="w-full text-[11px] border-collapse font-medium min-w-[1200px]">
                             <thead className="bg-slate-900 text-white sticky top-0 z-20">
                               <tr className="h-12">
-                                <th className="px-6 text-left font-bold border-r border-slate-800 sticky left-0 bg-slate-900 z-30" style={{ width: '250px' }}>구분 품명</th>
-                                <th className="px-4 text-left font-bold border-r border-slate-800" style={{ width: '150px' }}>규격</th>
-                                <th className="px-3 text-center font-bold border-r border-slate-800" style={{ width: '80px' }}>단위</th>
+                                <th className="px-4 text-left font-bold border-r border-slate-800 sticky left-0 bg-slate-900 z-30" style={{ width: '180px' }}>구분 품명</th>
+                                <th className="px-3 text-left font-bold border-r border-slate-800" style={{ width: '120px' }}>규격</th>
+                                <th className="px-2 text-center font-bold border-r border-slate-800" style={{ width: '60px' }}>단위</th>
                                 {filteredVendors.map(vendor => (
-                                  <th key={`matrix-header-th-${vendor.id}`} className="px-4 text-center font-bold border-r border-slate-800 bg-slate-800/50 min-w-[120px]">
+                                  <th key={`matrix-header-th-${vendor.id}`} className="px-3 text-center font-bold border-r border-slate-800 bg-slate-800/50 min-w-[100px]">
                                     {vendor.name}
                                   </th>
                                 ))}
@@ -3697,7 +3697,7 @@ export default function App() {
                                 
                                 return (
                                   <tr key={`matrix-row-${idx}`} className="hover:bg-indigo-50/30 transition-colors h-10 group">
-                                    <td className="px-6 font-bold text-slate-800 border-r border-slate-100 sticky left-0 bg-white group-hover:bg-indigo-50/50 z-10 transition-colors shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
+                                    <td className="px-4 font-bold text-slate-800 border-r border-slate-100 sticky left-0 bg-white group-hover:bg-indigo-50/50 z-10 transition-colors shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
                                       <div className="flex items-center justify-between">
                                         <div className="flex flex-col truncate">
                                           <span className="text-[10px] text-indigo-400 font-bold uppercase tracking-widest">{row.category}</span>
@@ -3712,8 +3712,8 @@ export default function App() {
                                         </button>
                                       </div>
                                     </td>
-                                    <td className="px-4 text-slate-500 font-bold border-r border-slate-100 truncate">{row.spec}</td>
-                                    <td className="px-3 text-center text-slate-400 border-r border-slate-100">{row.unit}</td>
+                                    <td className="px-3 text-slate-500 font-bold border-r border-slate-100 truncate">{row.spec}</td>
+                                    <td className="px-2 text-center text-slate-400 border-r border-slate-100">{row.unit}</td>
                                     {filteredVendors.map(vendor => {
                                       const entry = row.prices[vendor.id];
                                       const priceValue = entry?.unitPrice;
@@ -3722,7 +3722,7 @@ export default function App() {
                                       return (
                                         <td 
                                           key={`matrix-body-price-${row.itemName}-${row.spec || 'ns'}-${vendor.id}`} 
-                                          className={`px-4 text-center border-r border-slate-100 font-mono transition-all ${
+                                          className={`px-3 text-center border-r border-slate-100 font-mono transition-all ${
                                             isMin ? 'bg-emerald-50 text-emerald-700 font-black' : 'text-slate-600'
                                           }`}
                                         >
