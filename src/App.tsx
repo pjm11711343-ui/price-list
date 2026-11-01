@@ -3678,8 +3678,8 @@ export default function App() {
                           <table className="w-full text-[11px] border-collapse font-medium min-w-[1000px]">
                             <thead className="bg-slate-900 text-white sticky top-0 z-20">
                               <tr className="h-12">
-                                <th className="px-2 text-left font-bold border-r border-slate-800 sticky left-0 bg-slate-900 z-30" style={{ width: '100px' }}>구분 품명</th>
-                                <th className="px-2 text-left font-bold border-r border-slate-800" style={{ width: '80px' }}>규격</th>
+                                <th className="px-2 text-left font-bold border-r border-slate-800 sticky left-0 bg-slate-900 z-30" style={{ width: '100px', minWidth: '100px', maxWidth: '100px' }}>구분 품명</th>
+                                <th className="px-2 text-left font-bold border-r border-slate-800" style={{ width: '80px', minWidth: '80px', maxWidth: '80px' }}>규격</th>
                                 <th className="px-1 text-center font-bold border-r border-slate-800" style={{ width: '50px', minWidth: '50px', maxWidth: '50px' }}>단위</th>
                                 {filteredVendors.map(vendor => (
                                   <th 
@@ -3690,7 +3690,7 @@ export default function App() {
                                     <div className="truncate px-1" title={vendor.name}>{vendor.name}</div>
                                   </th>
                                 ))}
-                                <th className="bg-slate-900 border-none"></th> {/* Spacer to absorb extra width */}
+                                <th className="bg-slate-900 border-none" />
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
@@ -3702,7 +3702,7 @@ export default function App() {
                                 
                                 return (
                                   <tr key={`matrix-row-${idx}`} className="hover:bg-indigo-50/30 transition-colors h-10 group">
-                                    <td className="px-2 font-bold text-slate-800 border-r border-slate-100 sticky left-0 bg-white group-hover:bg-indigo-50/50 z-10 transition-colors shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
+                                    <td className="px-2 font-bold text-slate-800 border-r border-slate-100 sticky left-0 bg-white group-hover:bg-indigo-50/50 z-10 transition-colors shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]" style={{ width: '100px', minWidth: '100px', maxWidth: '100px' }}>
                                       <div className="flex items-center justify-between">
                                         <div className="flex flex-col truncate">
                                           <span className="text-[10px] text-indigo-400 font-bold uppercase tracking-widest">{row.category}</span>
@@ -3753,7 +3753,7 @@ export default function App() {
                                         </td>
                                       );
                                     })}
-                                    <td className="border-none bg-slate-50/10"></td> {/* Spacer cell */}
+                                    <td className="border-none bg-slate-50/10" />
                                   </tr>
                                 );
                               })}
@@ -5345,7 +5345,7 @@ export default function App() {
                           key={`price-row-${item.id}`} 
                           className={`group transition-all h-[38px] relative ${
                             selectedPriceIds.has(item.id) 
-                              ? 'bg-indigo-50/70 border-y-2 border-indigo-200 shadow-[inset_3px_0_0_0_#4f46e5] z-10' 
+                              ? 'bg-indigo-50 border-y-2 border-indigo-500 shadow-[inset_4px_0_0_0_#4f46e5] z-10' 
                               : 'bg-white hover:bg-indigo-50/20 border-y border-slate-100'
                           }`}
                         >
