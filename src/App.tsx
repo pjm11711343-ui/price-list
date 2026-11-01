@@ -536,6 +536,44 @@ export default function App() {
     return ['전체', ...Array.from(new Set(allPrices.map(p => p.category).filter(c => c && c !== '전체')))];
   }, [allPrices]);
 
+  const downloadMatrixAsExcel = () => {
+    if (matrixData.length === 0) return;
+
+    const headers = ['구분 품명', '규격', '단위', '카테고리', ...filteredVendors.map(v => v.name)];
+    
+    const rows = matrixData.map(row => {
+      const rowData: any[] = [
+        row.itemName,
+        row.spec,
+        row.unit,
+        row.category
+      ];
+      
+      filteredVendors.forEach(vendor => {
+        const price = row.prices[vendor.id];
+        rowData.push(price ? price.unitPrice : '-');
+      });
+      
+      return rowData;
+    });
+
+    const worksheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, '단가비교매트릭스');
+    
+    const colWidths = headers.map((h, i) => {
+      let maxLen = h.length * 2;
+      rows.forEach(r => {
+        const val = String(r[i]);
+        if (val.length > maxLen) maxLen = val.length;
+      });
+      return { wch: Math.min(maxLen + 2, 50) };
+    });
+    worksheet['!cols'] = colWidths;
+
+    XLSX.writeFile(workbook, `단가비교매트릭스_${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
+
   // Fetch and group unique items for "item" query mode
   const uniqueItems = useMemo(() => {
     const grouped: Record<string, {
@@ -3568,6 +3606,7 @@ export default function App() {
                             <BarChart3 className="h-3 w-3" />
                             단가 편차 분석
                           </button>
+                           <button onClick={downloadMatrixAsExcel} className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all border bg-emerald-600 border-emerald-500 text-white shadow-lg hover:bg-emerald-700 ml-1"><Download className="h-3 w-3" />Excel 다운로드</button>
                           <span className="text-[10px] font-bold text-slate-400 bg-slate-50 px-2 py-1 rounded border border-slate-100">
                              총 {matrixData.length}개 품목</span>{matrixVendorIds.length > 0 && <div className="flex items-center gap-2 ml-3"><button onClick={() => { setMatrixVendorIds([]); }} className="text-[10px] font-bold text-slate-400 hover:text-red-500 bg-white px-2 py-0.5 rounded border border-slate-100 cursor-pointer">선택 해제({matrixVendorIds.length})</button></div>}<span>
                           </span>
@@ -3685,7 +3724,7 @@ export default function App() {
                                   <th 
                                     key={`matrix-header-th-${vendor.id}`} 
                                     className="px-1 text-center font-bold border-r border-slate-800 bg-slate-800/50" 
-                                    style={{ width: '80px', minWidth: '80px', maxWidth: '80px' }}
+                                    style={{ width: '85px', minWidth: '85px', maxWidth: '85px' }}
                                   >
                                     <div className="truncate px-1" title={vendor.name}>{vendor.name}</div>
                                   </th>
@@ -3730,7 +3769,7 @@ export default function App() {
                                           className={`px-1 text-center border-r border-slate-100 font-mono transition-all ${
                                             isMin ? 'bg-emerald-50 text-emerald-700 font-black' : 'text-slate-600'
                                           }`}
-                                          style={{ width: '80px', minWidth: '80px', maxWidth: '80px' }}
+                                          style={{ width: '85px', minWidth: '85px', maxWidth: '85px' }}
                                         >
                                           {entry ? (
                                             <div className="flex flex-col items-center">
