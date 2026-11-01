@@ -493,7 +493,7 @@ export default function App() {
       spec: string; 
       unit: string; 
       category: string; 
-      prices: Record<string, { unitPrice: number; negoRate: number; negoType: 'percent' | 'sts_pipe'; hasPendingUpdate?: boolean }> 
+      prices: Record<string, { unitPrice: number; negoRate: number; negoType: 'percent' | 'sts_pipe'; maker?: string; hasPendingUpdate?: boolean }> 
     }> = {};
     
     // Filter allPrices based on current search and category
@@ -527,6 +527,7 @@ export default function App() {
         unitPrice: item.unitPrice,
         negoRate: item.negoRate,
         negoType: item.negoType || 'percent',
+        maker: item.maker || '',
         hasPendingUpdate: pendingUpdates.some(u => u.priceItemId === item.id && u.status === 'pending')
       };
     });
@@ -607,15 +608,19 @@ export default function App() {
       ];
       
       let minPrice = Infinity;
-      const pricesInRow: { value: number; colIdx: number }[] = [];
+      const pricesInRow: { value: number; colIdx: number; maker?: string }[] = [];
 
       filteredVendors.forEach((vendor, vIdx) => {
         const priceData = row.prices[vendor.id];
         const price = priceData ? priceData.unitPrice : null;
+        const maker = priceData ? (priceData as any).maker : '';
+        
+        // Use an object with result to handle rich text/multiple lines in Excel if needed, 
+        // but for simplicity we'll stick to the price value and use formatting or a separate line.
         rowData.push(price);
         
         if (price !== null && typeof price === 'number' && price > 0) {
-          pricesInRow.push({ value: price, colIdx: vIdx + 5 });
+          pricesInRow.push({ value: price, colIdx: vIdx + 5, maker });
           if (price < minPrice) minPrice = price;
         }
       });
@@ -635,18 +640,38 @@ export default function App() {
         if (colNumber <= 4) {
           cell.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
         } else {
-          cell.alignment = { vertical: 'middle', horizontal: 'right' };
-          cell.numFmt = '₩#,##0';
+          cell.alignment = { vertical: 'middle', horizontal: 'right', wrapText: true };
+          
+          // Find if this cell has a maker
+          const rowPriceEntry = pricesInRow.find(p => p.colIdx === colNumber);
+          if (rowPriceEntry && rowPriceEntry.maker) {
+             cell.value = {
+               richText: [
+                 { text: `₩${rowPriceEntry.value.toLocaleString()}`, font: { name: 'Malgun Gothic', size: 10, bold: true } },
+                 { text: `\n(${rowPriceEntry.maker})`, font: { name: 'Malgun Gothic', size: 8, color: { argb: 'FF94A3B8' } } }
+               ]
+             };
+          } else {
+            cell.numFmt = '₩#,##0';
+          }
           
           // Highlight Min Price
-          const val = cell.value;
+          const val = typeof cell.value === 'object' && cell.value !== null && 'richText' in cell.value 
+            ? rowPriceEntry?.value 
+            : cell.value;
+
           if (typeof val === 'number' && val > 0 && val === minPrice) {
             cell.fill = {
               type: 'pattern',
               pattern: 'solid',
               fgColor: { argb: 'FFD1FAE5' } // Emerald 100
             };
-            cell.font = { name: 'Malgun Gothic', size: 10, bold: true, color: { argb: 'FF065F46' } };
+            // For rich text, we need to style the segments manually or the whole cell
+            if (typeof cell.value === 'object' && cell.value !== null && 'richText' in cell.value) {
+              cell.value.richText[0].font!.color = { argb: 'FF065F46' };
+            } else {
+              cell.font = { name: 'Malgun Gothic', size: 10, bold: true, color: { argb: 'FF065F46' } };
+            }
           }
         }
       });
@@ -658,7 +683,7 @@ export default function App() {
     worksheet.getColumn(3).width = 10; // Unit
     worksheet.getColumn(4).width = 15; // Category
     for (let i = 5; i <= headers.length; i++) {
-      worksheet.getColumn(i).width = 18; // Vendors
+      worksheet.getColumn(i).width = 20; // Vendors (slightly wider for maker names)
     }
 
     // Freeze header and lead columns
@@ -3878,9 +3903,16 @@ export default function App() {
                                                   <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse shrink-0" title="승인 대기 중인 변경 요청이 있습니다." />
                                                 )}
                                               </div>
-                                              <span className="text-[8px] font-black text-indigo-400 opacity-70">
-                                                 {entry.negoType === 'sts_pipe' ? `STS ${entry.negoRate}` : `${entry.negoRate}%`}
-                                              </span>
+                                              <div className="flex flex-col items-center leading-[1.1] whitespace-normal text-center py-1">
+                                                <span className="text-[8px] font-black text-indigo-400 opacity-70">
+                                                   {entry.negoType === 'sts_pipe' ? `STS ${entry.negoRate}` : `${entry.negoRate}%`}
+                                                </span>
+                                                {entry.maker && (
+                                                  <span className="text-[7px] text-slate-400 font-medium break-all px-1">
+                                                    {entry.maker}
+                                                  </span>
+                                                )}
+                                              </div>
                                             </div>
                                           ) : (
                                             <span className="text-slate-200 text-[10px]">미등록</span>

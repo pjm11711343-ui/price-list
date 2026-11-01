@@ -1,6 +1,6 @@
 {
-  "summary":  "Implementation plan for enhancing the Excel download functionality of the Unit Price Integration Comparison Matrix. \nThe plan includes:\n- Installing `exceljs` and `file-saver` for advanced Excel styling.\n- Refactoring `downloadMatrixAsExcel` in `src/App.tsx` to use `ExcelJS`.\n- Adding summary statistics (Average Price, Price Variance) at the top of the sheet.\n- Highlighting the minimum price in each row with a professional background color.\n- Applying clean borders, grid layout, and KRW currency formatting (₩1,200).\n- Ensuring column widths in Excel match the strict UI requirements.",
-  "updatedAt":  "2026-11-01T06:56:41.033409080Z",
+  "summary":  "Implementation plan to add the Product Maker (제조사) name to the Unit Price Integration Comparison Matrix.\n- Update `matrixData` grouping logic to include the `maker` field for each vendor.\n- Enhance the Matrix UI to display the maker name next to the percentage rate in a smaller, subdued font.\n- Configure text wrapping for long maker names to maintain column integrity.\n- Update the professional Excel export to include the maker name alongside the unit price.",
+  "updatedAt":  "2026-11-01T07:05:49.980413201Z",
   "requestFeedback":  true,
   "userFacing":  true
 }
