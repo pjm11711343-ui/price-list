@@ -70,6 +70,8 @@ import {
 } from 'recharts';
 import { motion, AnimatePresence, Reorder } from 'motion/react';
 import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
+import { saveAs } from 'file-saver';
 import { QRCodeCanvas } from 'qrcode.react';
 import { 
   collection, 
@@ -536,12 +538,67 @@ export default function App() {
     return ['전체', ...Array.from(new Set(allPrices.map(p => p.category).filter(c => c && c !== '전체')))];
   }, [allPrices]);
 
-  const downloadMatrixAsExcel = () => {
+  const downloadMatrixAsExcel = async () => {
     if (matrixData.length === 0) return;
 
-    const headers = ['구분 품명', '규격', '단위', '카테고리', ...filteredVendors.map(v => v.name)];
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('단가비교매트릭스');
+
+    // 1. Title and Header Section
+    worksheet.mergeCells('A1:D1');
+    const titleCell = worksheet.getCell('A1');
+    titleCell.value = '단가 통합 비교 분석 리포트';
+    titleCell.font = { name: 'Malgun Gothic', size: 18, bold: true, color: { argb: 'FF1E293B' } };
+    titleCell.alignment = { vertical: 'middle', horizontal: 'center' };
+
+    worksheet.mergeCells('A2:D2');
+    const dateCell = worksheet.getCell('A2');
+    dateCell.value = `출력 일시: ${new Date().toLocaleString('ko-KR')}`;
+    dateCell.font = { name: 'Malgun Gothic', size: 10, color: { argb: 'FF64748B' } };
+    dateCell.alignment = { vertical: 'middle', horizontal: 'center' };
+
+    // Summary Statistics
+    worksheet.getCell('A4').value = '총 품목 수';
+    worksheet.getCell('B4').value = matrixData.length;
+    worksheet.getCell('C4').value = '비교 업체 수';
+    worksheet.getCell('D4').value = filteredVendors.length;
+
+    ['A4', 'C4'].forEach(cellRef => {
+      const cell = worksheet.getCell(cellRef);
+      cell.font = { bold: true, color: { argb: 'FF475569' } };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
+      cell.alignment = { horizontal: 'center' };
+    });
+
+    // 2. Header Row (Row 6)
+    const headerRowNumber = 6;
+    const vendorHeaders = filteredVendors.map(v => v.name);
+    const headers = ['구분 품명', '규격', '단위', '카테고리', ...vendorHeaders];
+    const headerRow = worksheet.getRow(headerRowNumber);
+    headerRow.values = headers;
+    headerRow.height = 25;
+    headerRow.font = { name: 'Malgun Gothic', bold: true, color: { argb: 'FFFFFFFF' } };
+    headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
     
-    const rows = matrixData.map(row => {
+    headerRow.eachCell((cell) => {
+      cell.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FF1E293B' } // Slate 800
+      };
+      cell.border = {
+        top: { style: 'thin', color: { argb: 'FF000000' } },
+        left: { style: 'thin', color: { argb: 'FF000000' } },
+        bottom: { style: 'thin', color: { argb: 'FF000000' } },
+        right: { style: 'thin', color: { argb: 'FF000000' } }
+      };
+    });
+
+    // 3. Data Rows
+    matrixData.forEach((row, idx) => {
+      const rowIndex = headerRowNumber + 1 + idx;
+      const worksheetRow = worksheet.getRow(rowIndex);
+      
       const rowData: any[] = [
         row.itemName,
         row.spec,
@@ -549,29 +606,68 @@ export default function App() {
         row.category
       ];
       
-      filteredVendors.forEach(vendor => {
-        const price = row.prices[vendor.id];
-        rowData.push(price ? price.unitPrice : '-');
+      let minPrice = Infinity;
+      const pricesInRow: { value: number; colIdx: number }[] = [];
+
+      filteredVendors.forEach((vendor, vIdx) => {
+        const priceData = row.prices[vendor.id];
+        const price = priceData ? priceData.unitPrice : null;
+        rowData.push(price);
+        
+        if (price !== null && typeof price === 'number' && price > 0) {
+          pricesInRow.push({ value: price, colIdx: vIdx + 5 });
+          if (price < minPrice) minPrice = price;
+        }
       });
-      
-      return rowData;
+
+      worksheetRow.values = rowData;
+
+      // Styling each cell
+      worksheetRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+        cell.font = { name: 'Malgun Gothic', size: 10 };
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+          left: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+          bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+          right: { style: 'thin', color: { argb: 'FFE2E8F0' } }
+        };
+
+        if (colNumber <= 4) {
+          cell.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+        } else {
+          cell.alignment = { vertical: 'middle', horizontal: 'right' };
+          cell.numFmt = '₩#,##0';
+          
+          // Highlight Min Price
+          const val = cell.value;
+          if (typeof val === 'number' && val > 0 && val === minPrice) {
+            cell.fill = {
+              type: 'pattern',
+              pattern: 'solid',
+              fgColor: { argb: 'FFD1FAE5' } // Emerald 100
+            };
+            cell.font = { name: 'Malgun Gothic', size: 10, bold: true, color: { argb: 'FF065F46' } };
+          }
+        }
+      });
     });
 
-    const worksheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, '단가비교매트릭스');
-    
-    const colWidths = headers.map((h, i) => {
-      let maxLen = h.length * 2;
-      rows.forEach(r => {
-        const val = String(r[i]);
-        if (val.length > maxLen) maxLen = val.length;
-      });
-      return { wch: Math.min(maxLen + 2, 50) };
-    });
-    worksheet['!cols'] = colWidths;
+    // 4. Set Column Widths
+    worksheet.getColumn(1).width = 35; // Item Name
+    worksheet.getColumn(2).width = 20; // Spec
+    worksheet.getColumn(3).width = 10; // Unit
+    worksheet.getColumn(4).width = 15; // Category
+    for (let i = 5; i <= headers.length; i++) {
+      worksheet.getColumn(i).width = 18; // Vendors
+    }
 
-    XLSX.writeFile(workbook, `단가비교매트릭스_${new Date().toISOString().split('T')[0]}.xlsx`);
+    // Freeze header and lead columns
+    worksheet.views = [
+      { state: 'frozen', xSplit: 4, ySplit: 6 }
+    ];
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    saveAs(new Blob([buffer]), `단가비교매트릭스_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
   // Fetch and group unique items for "item" query mode
