@@ -655,7 +655,7 @@ export default function App() {
              cell.value = {
                richText: [
                  { text: `₩${rowPriceEntry.value.toLocaleString()}`, font: { name: 'Malgun Gothic', size: 10, bold: true } },
-                 { text: `\n${rateText} ${rowPriceEntry.maker ? `(${rowPriceEntry.maker})` : ''}`, font: { name: 'Malgun Gothic', size: 8, color: { argb: 'FF94A3B8' } } }
+                 { text: `\n${rateText} ${rowPriceEntry.maker ? `(${rowPriceEntry.maker})` : ''}`, font: { name: 'Malgun Gothic', size: 10, color: { argb: 'FF94A3B8' } } }
                ]
              };
           } else {
@@ -3911,11 +3911,11 @@ export default function App() {
                                                 )}
                                               </div>
                                               <div className="flex items-center justify-center gap-1 leading-none whitespace-nowrap text-center py-0.5 w-full overflow-hidden">
-                                                <span className="text-[8px] font-black text-indigo-400 opacity-70 shrink-0">
+                                                <span className="text-[10.5px] font-black text-indigo-400 opacity-70 shrink-0">
                                                    {entry.negoType === 'sts_pipe' ? `STS ${entry.negoRate}` : `${entry.negoRate}%`}
                                                 </span>
                                                 {entry.maker && (
-                                                  <span className="text-[7px] text-slate-400 font-medium truncate max-w-[65px]" title={entry.maker}>
+                                                  <span className="text-[10.5px] text-slate-400 font-medium truncate max-w-[60px]" title={entry.maker}>
                                                     {entry.maker}
                                                   </span>
                                                 )}
