@@ -608,7 +608,7 @@ export default function App() {
       ];
       
       let minPrice = Infinity;
-      const pricesInRow: { value: number; colIdx: number; maker?: string }[] = [];
+      const pricesInRow: { value: number; colIdx: number; maker?: string; negoRate: number; negoType: string }[] = [];
 
       filteredVendors.forEach((vendor, vIdx) => {
         const priceData = row.prices[vendor.id];
@@ -620,7 +620,13 @@ export default function App() {
         rowData.push(price);
         
         if (price !== null && typeof price === 'number' && price > 0) {
-          pricesInRow.push({ value: price, colIdx: vIdx + 5, maker });
+          pricesInRow.push({ 
+            value: price, 
+            colIdx: vIdx + 5, 
+            maker,
+            negoRate: priceData.negoRate,
+            negoType: priceData.negoType || 'percent'
+          });
           if (price < minPrice) minPrice = price;
         }
       });
@@ -644,11 +650,12 @@ export default function App() {
           
           // Find if this cell has a maker
           const rowPriceEntry = pricesInRow.find(p => p.colIdx === colNumber);
-          if (rowPriceEntry && rowPriceEntry.maker) {
+          if (rowPriceEntry) {
+             const rateText = rowPriceEntry.negoType === 'sts_pipe' ? `STS ${rowPriceEntry.negoRate}` : `${rowPriceEntry.negoRate}%`;
              cell.value = {
                richText: [
                  { text: `₩${rowPriceEntry.value.toLocaleString()}`, font: { name: 'Malgun Gothic', size: 10, bold: true } },
-                 { text: `\n(${rowPriceEntry.maker})`, font: { name: 'Malgun Gothic', size: 8, color: { argb: 'FF94A3B8' } } }
+                 { text: `\n${rateText} ${rowPriceEntry.maker ? `(${rowPriceEntry.maker})` : ''}`, font: { name: 'Malgun Gothic', size: 8, color: { argb: 'FF94A3B8' } } }
                ]
              };
           } else {
@@ -3903,12 +3910,12 @@ export default function App() {
                                                   <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse shrink-0" title="승인 대기 중인 변경 요청이 있습니다." />
                                                 )}
                                               </div>
-                                              <div className="flex flex-col items-center leading-[1.1] whitespace-normal text-center py-1">
-                                                <span className="text-[8px] font-black text-indigo-400 opacity-70">
+                                              <div className="flex items-center justify-center gap-1 leading-none whitespace-nowrap text-center py-0.5 w-full overflow-hidden">
+                                                <span className="text-[8px] font-black text-indigo-400 opacity-70 shrink-0">
                                                    {entry.negoType === 'sts_pipe' ? `STS ${entry.negoRate}` : `${entry.negoRate}%`}
                                                 </span>
                                                 {entry.maker && (
-                                                  <span className="text-[7px] text-slate-400 font-medium break-all px-1">
+                                                  <span className="text-[7px] text-slate-400 font-medium truncate max-w-[65px]" title={entry.maker}>
                                                     {entry.maker}
                                                   </span>
                                                 )}
