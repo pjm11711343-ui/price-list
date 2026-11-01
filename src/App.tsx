@@ -3717,14 +3717,14 @@ export default function App() {
                           <table className="w-full text-[11px] border-collapse font-medium min-w-[1000px]">
                             <thead className="bg-slate-900 text-white sticky top-0 z-20">
                               <tr className="h-12">
-                                <th className="px-2 text-left font-bold border-r border-slate-800 sticky left-0 bg-slate-900 z-30" style={{ width: '100px', minWidth: '100px', maxWidth: '100px' }}>구분 품명</th>
-                                <th className="px-2 text-left font-bold border-r border-slate-800" style={{ width: '80px', minWidth: '80px', maxWidth: '80px' }}>규격</th>
+                                <th className="px-2 text-left font-bold border-r border-slate-800 sticky left-0 bg-slate-900 z-30" style={{ width: '200px', minWidth: '200px', maxWidth: '200px' }}>구분 품명</th>
+                                <th className="px-2 text-left font-bold border-r border-slate-800" style={{ width: '120px', minWidth: '120px', maxWidth: '120px' }}>규격</th>
                                 <th className="px-1 text-center font-bold border-r border-slate-800" style={{ width: '50px', minWidth: '50px', maxWidth: '50px' }}>단위</th>
                                 {filteredVendors.map(vendor => (
                                   <th 
                                     key={`matrix-header-th-${vendor.id}`} 
                                     className="px-1 text-center font-bold border-r border-slate-800 bg-slate-800/50" 
-                                    style={{ width: '85px', minWidth: '85px', maxWidth: '85px' }}
+                                    style={{ width: '120px', minWidth: '120px', maxWidth: '120px' }}
                                   >
                                     <div className="truncate px-1" title={vendor.name}>{vendor.name}</div>
                                   </th>
@@ -3741,7 +3741,7 @@ export default function App() {
                                 
                                 return (
                                   <tr key={`matrix-row-${idx}`} className="hover:bg-indigo-50/30 transition-colors h-10 group">
-                                    <td className="px-2 font-bold text-slate-800 border-r border-slate-100 sticky left-0 bg-white group-hover:bg-indigo-50/50 z-10 transition-colors shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]" style={{ width: '100px', minWidth: '100px', maxWidth: '100px' }}>
+                                    <td className="px-2 font-bold text-slate-800 border-r border-slate-100 sticky left-0 bg-white group-hover:bg-indigo-50/50 z-10 transition-colors shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]" style={{ width: '200px', minWidth: '200px', maxWidth: '200px' }}>
                                       <div className="flex items-center justify-between">
                                         <div className="flex flex-col truncate">
                                           <span className="text-[10px] text-indigo-400 font-bold uppercase tracking-widest">{row.category}</span>
@@ -3756,7 +3756,7 @@ export default function App() {
                                         </button>
                                       </div>
                                     </td>
-                                    <td className="px-2 text-slate-500 font-bold border-r border-slate-100 truncate" style={{ width: '80px', minWidth: '80px', maxWidth: '80px' }}>{row.spec}</td>
+                                    <td className="px-2 text-slate-500 font-bold border-r border-slate-100 truncate" style={{ width: '120px', minWidth: '120px', maxWidth: '120px' }}>{row.spec}</td>
                                     <td className="px-1 text-center text-slate-400 border-r border-slate-100" style={{ width: '50px', minWidth: '50px', maxWidth: '50px' }}>{row.unit}</td>
                                     {filteredVendors.map(vendor => {
                                       const entry = row.prices[vendor.id];
@@ -3769,7 +3769,7 @@ export default function App() {
                                           className={`px-1 text-center border-r border-slate-100 font-mono transition-all ${
                                             isMin ? 'bg-emerald-50 text-emerald-700 font-black' : 'text-slate-600'
                                           }`}
-                                          style={{ width: '85px', minWidth: '85px', maxWidth: '85px' }}
+                                          style={{ width: '120px', minWidth: '120px', maxWidth: '120px' }}
                                         >
                                           {entry ? (
                                             <div className="flex flex-col items-center">
