@@ -4,3 +4,29 @@
 #main-content-view tbody tr .maker-name-compact {
   font-size: 9px !important;
 }
+
+@media print {
+  body {
+    background: white !important;
+  }
+  body * {
+    visibility: hidden;
+  }
+  #printable-vendor-manual,
+  #printable-vendor-manual * {
+    visibility: visible;
+  }
+  #printable-vendor-manual {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: none !important;
+    box-shadow: none !important;
+    border: none !important;
+    overflow: visible !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+}

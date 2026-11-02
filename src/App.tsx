@@ -98,6 +98,7 @@ import {
 import { db, auth, storage } from './lib/firebase';
 import { Vendor, PriceItem, ComparisonRow, PendingPriceUpdate } from './types';
 import { ALL_VENDORS } from './data/seedData';
+import VendorUserManualModal from './components/VendorUserManualModal';
 
 // Error Handling Types
 enum OperationType {
@@ -171,7 +172,7 @@ const PriceTrendTooltip = ({ history }: { history: { price: number; date: any }[
       </div>
       <div className="space-y-2">
         {history.map((h, i) => (
-          <div key={i} className="flex items-center justify-between gap-3 group">
+          <div key={`price-trend-history-${i}`} className="flex items-center justify-between gap-3 group">
              <span className="text-slate-400 font-bold">
                {h.date?.toDate ? h.date.toDate().toLocaleDateString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : 
                 h.date instanceof Date ? h.date.toLocaleDateString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : 
@@ -483,7 +484,14 @@ export default function App() {
     }
     
     // Only return vendors that actually have data in the system that matches filters
-    return baseList.filter(v => vendorsWithData.has(v.id));
+    const matched = baseList.filter(v => vendorsWithData.has(v.id));
+    // Deduplicate by vendor id
+    const seen = new Set<string>();
+    return matched.filter(v => {
+      if (seen.has(v.id)) return false;
+      seen.add(v.id);
+      return true;
+    });
   }, [vendors, matrixVendorIds, vendorsWithData]);
 
   // Matrix Processing: Group items by Name + Spec
@@ -773,7 +781,9 @@ export default function App() {
   const itemCategories = useMemo(() => {
     const cats = new Set<string>();
     uniqueItems.forEach(item => {
-      if (item.category) cats.add(item.category);
+      if (item.category && item.category.trim() !== '' && item.category.trim() !== '전체') {
+        cats.add(item.category.trim());
+      }
     });
     return ['전체', ...Array.from(cats).sort()];
   }, [uniqueItems]);
@@ -3336,11 +3346,14 @@ export default function App() {
         <div className="flex items-center gap-4">
           <button 
             onClick={() => setIsVendorGuideOpen(true)}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 bg-indigo-50 border border-indigo-100 hover:bg-indigo-100 text-indigo-700 text-xs font-black rounded-full shadow-sm transition-all"
-            title="업체모드(납품업체) 사용방법 가이드를 봅니다."
+            className="flex items-center gap-1.5 px-3.5 py-1.5 bg-gradient-to-r from-indigo-50 to-indigo-100/70 border border-indigo-200 hover:border-indigo-300 text-indigo-700 text-xs font-black rounded-full shadow-xs hover:shadow transition-all group"
+            title="거래처 배포용 공식 사용설명서 (최초 로그인, 비밀번호 변경, 필수 증빙서류, 단가/요율 및 메이커 작성 안내)"
           >
-            <HelpCircle className="h-3.5 w-3.5 text-indigo-500" />
-            <span>업체모드 사용방법</span>
+            <HelpCircle className="h-3.5 w-3.5 text-indigo-600 group-hover:scale-110 transition-transform" />
+            <span>거래처 사용설명서 (배포용)</span>
+            <span className="text-[9px] bg-indigo-600 text-white px-1.5 py-0.2 rounded-full font-black">
+              필독
+            </span>
           </button>
           {/* 계약서 미회신 알림 (미회신 업체가 있는 경우 항시 발생) */}
           {pendingContractVendors.length > 0 && (
@@ -3429,8 +3442,8 @@ export default function App() {
                         }}
                         className="text-xs font-bold bg-white border border-slate-200 rounded-lg px-2 py-1 outline-none w-full focus:border-indigo-500 text-slate-700"
                       >
-                        {itemCategories.map(cat => (
-                          <option key={`item-cat-${cat}`} value={cat}>{cat}</option>
+                        {itemCategories.map((cat, idx) => (
+                          <option key={`item-cat-${cat}-${idx}`} value={cat}>{cat}</option>
                         ))}
                       </select>
                     </div>
@@ -3440,12 +3453,12 @@ export default function App() {
                   {filteredUniqueItems.length === 0 ? (
                     <div className="text-center py-12 text-xs text-slate-400 font-medium">부합하는 품목이 없습니다.</div>
                   ) : (
-                    filteredUniqueItems.map(item => {
+                    filteredUniqueItems.map((item, idx) => {
                       const itemKey = `${item.itemName.trim()}_${(item.spec || '').trim()}`;
                       const isSelected = selectedCompareKey === itemKey;
                       return (
                         <button
-                          key={`compare-item-${itemKey}`}
+                          key={`compare-item-${itemKey}-${idx}`}
                           onClick={() => setSelectedCompareKey(itemKey)}
                           className={`w-full text-left px-3 py-2.5 rounded-xl text-xs font-medium transition-all duration-200 flex flex-col gap-1 border ${
                             isSelected
@@ -3577,7 +3590,7 @@ export default function App() {
                     >
                       {sidebarVendors.map((vendor, index) => (
                         <Reorder.Item
-                          key={`reorder-${vendor.id}`}
+                          key={`reorder-${vendor.id}-${index}`}
                           value={vendor}
                           id={`vendor-btn-${vendor.id}`}
                           onClick={() => {
@@ -3646,7 +3659,7 @@ export default function App() {
                   ) : (
                     sidebarVendors.map((vendor, index) => (
                       <div
-                        key={`vendor-list-${vendor.id}`}
+                        key={`vendor-list-${vendor.id}-${index}`}
                         id={`vendor-btn-${vendor.id}`}
                         onClick={() => {
                           if (viewMode === 'matrix') {
@@ -3742,9 +3755,9 @@ export default function App() {
                      </div>
                      
                      <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
-                        {matrixCategories.map(cat => (
+                        {matrixCategories.map((cat, idx) => (
                           <button
-                            key={`matrix-cat-${cat}`}
+                            key={`matrix-cat-${cat}-${idx}`}
                             onClick={() => setMatrixCategory(cat)}
                             className={`px-3 py-1 rounded-full text-xs font-bold transition-all whitespace-nowrap ${
                               matrixCategory === cat
@@ -3848,9 +3861,9 @@ export default function App() {
                                 <th className="px-2 text-left font-bold border-r border-slate-800 sticky left-0 bg-slate-900 z-30" style={{ width: '200px', minWidth: '200px', maxWidth: '200px' }}>구분 품명</th>
                                 <th className="px-2 text-left font-bold border-r border-slate-800" style={{ width: '120px', minWidth: '120px', maxWidth: '120px' }}>규격</th>
                                 <th className="px-1 text-center font-bold border-r border-slate-800" style={{ width: '50px', minWidth: '50px', maxWidth: '50px' }}>단위</th>
-                                {filteredVendors.map(vendor => (
+                                {filteredVendors.map((vendor, vIdx) => (
                                   <th 
-                                    key={`matrix-header-th-${vendor.id}`} 
+                                    key={`matrix-header-th-${vendor.id}-${vIdx}`} 
                                     className="px-1 text-center font-bold border-r border-slate-800 bg-slate-800/50" 
                                     style={{ width: '120px', minWidth: '120px', maxWidth: '120px' }}
                                   >
@@ -3886,14 +3899,14 @@ export default function App() {
                                     </td>
                                     <td className="px-2 text-slate-500 font-bold border-r border-slate-100 truncate" style={{ width: '120px', minWidth: '120px', maxWidth: '120px' }}>{row.spec}</td>
                                     <td className="px-1 text-center text-slate-400 border-r border-slate-100" style={{ width: '50px', minWidth: '50px', maxWidth: '50px' }}>{row.unit}</td>
-                                    {filteredVendors.map(vendor => {
+                                    {filteredVendors.map((vendor, vIdx) => {
                                       const entry = row.prices[vendor.id];
                                       const priceValue = entry?.unitPrice;
                                       const isMin = priceValue && minPrice && priceValue === minPrice && priceValues.length > 1;
                                       
                                       return (
                                         <td 
-                                          key={`matrix-body-price-${row.itemName}-${row.spec || 'ns'}-${vendor.id}`} 
+                                          key={`matrix-body-price-${row.itemName}-${row.spec || 'ns'}-${vendor.id}-${vIdx}`} 
                                           className={`px-1 text-center border-r border-slate-100 font-mono transition-all ${
                                             isMin ? 'bg-emerald-50 text-emerald-700 font-black' : 'text-slate-600'
                                           }`}
@@ -4217,6 +4230,14 @@ export default function App() {
                               <LinkIcon className="h-2.5 w-2.5" />
                               {copySuccess ? '복사됨!' : '링크 복사'}
                             </button>
+                            <button 
+                              onClick={() => setIsVendorGuideOpen(true)}
+                              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-wider transition-all border bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100 hover:border-indigo-300 shadow-xs"
+                              title="거래처 포탈 공식 사용설명서 열기"
+                            >
+                              <HelpCircle className="h-2.5 w-2.5 text-indigo-500" />
+                              <span>사용설명서</span>
+                            </button>
                             <div className="text-[10px] text-slate-400 font-bold bg-slate-50 px-2 py-0.5 rounded border border-slate-100">
                               V-ID: {selectedVendor.id.slice(0, 8)}
                             </div>
@@ -4282,7 +4303,7 @@ export default function App() {
                           { label: '사업자번호', value: selectedVendor.businessNumber },
                           { label: '이메일', value: selectedVendor.email }
                         ].map((item, idx) => (
-                          <div key={`vendor-info-${item.label}`} className="flex items-center gap-1.5">
+                          <div key={`vendor-info-${item.label}-${idx}`} className="flex items-center gap-1.5">
                             <span className="text-[9px] font-black text-slate-400/80 uppercase tracking-tighter">{item.label}</span>
                             <span className={`text-[11px] font-bold ${item.label === '이메일' ? 'text-indigo-600' : 'text-slate-600'}`}>
                               {item.value || '-'}
@@ -4779,8 +4800,8 @@ export default function App() {
                          className="h-7 bg-slate-50 border border-slate-200 rounded px-2 text-[10px] font-bold text-slate-600 outline-none focus:ring-1 focus:ring-indigo-500 transition-all hover:bg-slate-100 cursor-pointer"
                        >
                          <option value="">카테고리 선택</option>
-                         {categories.filter(c => c !== '전체').map(cat => (
-                           <option key={`bulk-cat-opt-${cat}`} value={cat}>{cat}</option>
+                         {categories.filter(c => c !== '전체').map((cat, idx) => (
+                           <option key={`bulk-cat-opt-${cat}-${idx}`} value={cat}>{cat}</option>
                          ))}
                        </select>
                     </div>
@@ -5066,9 +5087,9 @@ export default function App() {
                     }}
                     className="flex items-center gap-1 bg-[#F8F9FA]"
                   >
-                    {categories.map((cat) => (
+                    {categories.map((cat, idx) => (
                       <Reorder.Item
-                        key={`cat-reorder-${cat}`}
+                        key={`cat-reorder-${cat}-${idx}`}
                         value={cat}
                         className="relative group/cat shrink-0 flex items-center"
                       >
@@ -5137,8 +5158,8 @@ export default function App() {
                   </Reorder.Group>
                 ) : (
                   <div className="flex items-center gap-1">
-                    {categories.map((cat) => (
-                      <div key={`cat-tab-${cat}`} className="relative group/cat shrink-0">
+                    {categories.map((cat, idx) => (
+                      <div key={`cat-tab-${cat}-${idx}`} className="relative group/cat shrink-0">
                         <button
                           onClick={() => setActiveCategory(cat)}
                           className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-1.5 ${
@@ -5265,9 +5286,9 @@ export default function App() {
                             { id: 'today', label: '오늘' },
                             { id: 'week', label: '1주' },
                             { id: 'month', label: '1개월' }
-                          ].map((period) => (
+                          ].map((period, idx) => (
                             <button
-                              key={period.id}
+                              key={`period-${period.id}-${idx}`}
                               onClick={() => setFilterUpdatePeriod(period.id as any)}
                               className={`flex-1 py-1 text-[10px] font-bold rounded-lg transition-all ${
                                 filterUpdatePeriod === period.id 
@@ -5516,7 +5537,7 @@ export default function App() {
                       const discount = item.negoType === 'sts_pipe' ? 0 : item.costPrice * (item.negoRate / 100);
                       return (
                         <tr 
-                          key={`price-row-${item.id}`} 
+                          key={`price-row-${item.vendorId || ''}-${item.id || ''}-${idx}`} 
                           className={`group transition-all h-[38px] relative ${
                             selectedPriceIds.has(item.id) 
                               ? 'bg-indigo-50 border-y-2 border-indigo-500 shadow-[inset_4px_0_0_0_#4f46e5] z-10' 
@@ -5545,8 +5566,8 @@ export default function App() {
                               className="w-full bg-transparent border-none text-[10px] font-bold text-slate-500 outline-none focus:ring-0 appearance-none cursor-pointer hover:text-indigo-600 transition-colors disabled:pointer-events-none disabled:hover:text-slate-500"
                             >
                               <option value="">미지정</option>
-                              {categories.filter(c => c !== '전체').map(cat => (
-                                <option key={`inline-cat-opt-${item.id}-${cat}`} value={cat}>{cat}</option>
+                              {categories.filter(c => c !== '전체').map((cat, cIdx) => (
+                                <option key={`inline-cat-opt-${item.id}-${cat}-${cIdx}`} value={cat}>{cat}</option>
                               ))}
                             </select>
                           </td>
@@ -6245,15 +6266,15 @@ export default function App() {
                         <thead className="sticky top-0 bg-slate-800 text-white z-10">
                           <tr>
                             {excelPreviewData[0] && Array.isArray(excelPreviewData[0]) && excelPreviewData[0].map((cell: any, i: number) => (
-                              <th key={i} className="px-3 py-2 font-bold border-r border-slate-700">{cell || `Col ${i+1}`}</th>
+                              <th key={`excel-th-${i}`} className="px-3 py-2 font-bold border-r border-slate-700">{cell || `Col ${i+1}`}</th>
                             ))}
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
                           {excelPreviewData.slice(1).map((row, i) => (
-                            <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                            <tr key={`excel-row-${i}`} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
                               {Array.isArray(row) ? row.map((cell: any, j: number) => (
-                                <td key={j} className="px-3 py-2 border-r border-slate-100 whitespace-nowrap">{cell}</td>
+                                <td key={`excel-cell-${i}-${j}`} className="px-3 py-2 border-r border-slate-100 whitespace-nowrap">{cell}</td>
                               )) : (
                                 <td colSpan={100} className="px-3 py-2 text-slate-400 italic">데이터를 불러올 수 없습니다.</td>
                               )}
@@ -6299,8 +6320,8 @@ export default function App() {
                       className="w-full rounded-2xl border-2 border-slate-100 bg-slate-50 p-4 font-bold text-slate-800 focus:border-indigo-500 focus:bg-white focus:outline-none transition-all outline-none appearance-none"
                     >
                       <option value="">카테고리 선택</option>
-                      {categories.filter(c => c !== '전체').map(cat => (
-                        <option key={`opt-add-item-${cat}`} value={cat}>{cat}</option>
+                      {categories.filter(c => c !== '전체').map((cat, idx) => (
+                        <option key={`opt-add-item-${cat}-${idx}`} value={cat}>{cat}</option>
                       ))}
                     </select>
                   </div>
@@ -6502,8 +6523,8 @@ export default function App() {
                 </div>
               ) : (
                 <div className="max-h-[500px] overflow-y-auto pr-2 space-y-2">
-                  {vendors.filter(v => v.deleted).sort((a,b) => (b.deletedAt?.toMillis?.() || 0) - (a.deletedAt?.toMillis?.() || 0)).map(vendor => (
-                    <div key={vendor.id} className="flex items-center justify-between p-4 bg-white border border-slate-100 rounded-xl hover:border-indigo-200 transition-all group">
+                  {vendors.filter(v => v.deleted).sort((a,b) => (b.deletedAt?.toMillis?.() || 0) - (a.deletedAt?.toMillis?.() || 0)).map((vendor, idx) => (
+                    <div key={`deleted-vendor-${vendor.id}-${idx}`} className="flex items-center justify-between p-4 bg-white border border-slate-100 rounded-xl hover:border-indigo-200 transition-all group">
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 group-hover:bg-indigo-50 group-hover:text-indigo-600 transition-colors">
                           <Building2 className="h-5 w-5" />
@@ -7082,8 +7103,8 @@ export default function App() {
                     onChange={(e) => setTargetVendorId(e.target.value)}
                     className="w-full rounded-xl border-2 border-slate-100 bg-white p-4 font-bold text-slate-700 focus:border-indigo-500 focus:outline-none appearance-none cursor-pointer"
                   >
-                    {vendors.filter(v => v.id !== selectedVendor?.id).map(vendor => (
-                      <option key={vendor.id} value={vendor.id}>
+                    {vendors.filter(v => v.id !== selectedVendor?.id).map((vendor, idx) => (
+                      <option key={`move-opt-vendor-${vendor.id}-${idx}`} value={vendor.id}>
                         {vendor.name} ({vendor.categories?.length || 0}개 카테고리 보유)
                       </option>
                     ))}
@@ -7145,8 +7166,8 @@ export default function App() {
                     onChange={(e) => setTargetVendorId(e.target.value)}
                     className="w-full rounded-xl border-2 border-slate-100 bg-white p-4 font-bold text-slate-700 focus:border-indigo-500 focus:outline-none appearance-none cursor-pointer"
                   >
-                    {vendors.filter(v => v.id !== selectedVendor?.id).map(vendor => (
-                      <option key={vendor.id} value={vendor.id}>
+                    {vendors.filter(v => v.id !== selectedVendor?.id).map((vendor, idx) => (
+                      <option key={`copy-opt-vendor-${vendor.id}-${idx}`} value={vendor.id}>
                         {vendor.name} ({vendor.categories?.length || 0}개 카테고리 보유)
                       </option>
                     ))}
@@ -7291,44 +7312,42 @@ export default function App() {
         )}
 
         {/* ADMIN PASSWORD CHANGE MODAL */}
-        <AnimatePresence>
-          {isChangingAdminPassword && (
-            <Modal key="modal-change-admin-password" title="관리자 비밀번호 변경" onClose={() => setIsChangingAdminPassword(false)}>
-              <div className="space-y-4">
-                <div className="bg-amber-50 border border-amber-200 p-3 rounded-xl flex items-start gap-3">
-                  <Info className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
-                  <p className="text-xs text-amber-700 leading-relaxed font-medium">
-                    새로운 비밀번호로 변경됩니다. 변경 즉시 전체 시스템에 적용되니 신중히 입력해주세요.
-                  </p>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 mb-2 uppercase tracking-wider">새 비밀번호</label>
-                  <input 
-                    type="password"
-                    value={newAdminPassword}
-                    onChange={(e) => setNewAdminPassword(e.target.value)}
-                    placeholder="새로운 관리자 비밀번호 입력"
-                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all font-bold placeholder:font-medium"
-                  />
-                </div>
-                <div className="flex gap-3 pt-2">
-                  <button 
-                    onClick={() => setIsChangingAdminPassword(false)}
-                    className="flex-1 px-4 py-3 bg-slate-100 text-slate-600 font-bold rounded-2xl hover:bg-slate-200 transition-all"
-                  >
-                    취소
-                  </button>
-                  <button 
-                    onClick={handleUpdateAdminPassword}
-                    className="flex-[2] px-4 py-3 bg-indigo-600 text-white font-bold rounded-2xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200"
-                  >
-                    비밀번호 변경하기
-                  </button>
-                </div>
+        {isChangingAdminPassword && (
+          <Modal key="modal-change-admin-password" title="관리자 비밀번호 변경" onClose={() => setIsChangingAdminPassword(false)}>
+            <div className="space-y-4">
+              <div className="bg-amber-50 border border-amber-200 p-3 rounded-xl flex items-start gap-3">
+                <Info className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
+                <p className="text-xs text-amber-700 leading-relaxed font-medium">
+                  새로운 비밀번호로 변경됩니다. 변경 즉시 전체 시스템에 적용되니 신중히 입력해주세요.
+                </p>
               </div>
-            </Modal>
-          )}
-        </AnimatePresence>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 mb-2 uppercase tracking-wider">새 비밀번호</label>
+                <input 
+                  type="password"
+                  value={newAdminPassword}
+                  onChange={(e) => setNewAdminPassword(e.target.value)}
+                  placeholder="새로운 관리자 비밀번호 입력"
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all font-bold placeholder:font-medium"
+                />
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button 
+                  onClick={() => setIsChangingAdminPassword(false)}
+                  className="flex-1 px-4 py-3 bg-slate-100 text-slate-600 font-bold rounded-2xl hover:bg-slate-200 transition-all"
+                >
+                  취소
+                </button>
+                <button 
+                  onClick={handleUpdateAdminPassword}
+                  className="flex-[2] px-4 py-3 bg-indigo-600 text-white font-bold rounded-2xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200"
+                >
+                  비밀번호 변경하기
+                </button>
+              </div>
+            </div>
+          </Modal>
+        )}
 
         {showAdminLogin && (
           <Modal key="modal-admin-login" title="관리자 시스템 로그인" onClose={() => setShowAdminLogin(false)}>
@@ -7537,7 +7556,7 @@ export default function App() {
                            <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">카테고리</label>
                            <select name="category" defaultValue={item.category} className="w-full rounded-xl border-2 border-slate-100 bg-slate-50 p-4 font-bold focus:border-indigo-500 outline-none appearance-none">
                              <option value="">선택 안함</option>
-                             {categories.filter(c => c !== '전체').map(cat => <option key={`opt-edit-item-${cat}`} value={cat}>{cat}</option>)}
+                             {categories.filter(c => c !== '전체').map((cat, idx) => <option key={`opt-edit-item-${cat}-${idx}`} value={cat}>{cat}</option>)}
                            </select>
                         </div>
                         <div className="space-y-2">
@@ -7791,10 +7810,10 @@ export default function App() {
                   </div>
 
                   <div className="space-y-3">
-                    {pendingUpdates.filter(u => u.status === 'pending').map((update) => {
+                    {pendingUpdates.filter(u => u.status === 'pending').map((update, idx) => {
                       const vendor = vendors.find(v => v.id === update.vendorId);
                       return (
-                        <div key={update.id} className="p-5 border border-slate-100 rounded-2xl bg-white shadow-sm hover:shadow-md transition-all">
+                        <div key={`pending-update-${update.id}-${idx}`} className="p-5 border border-slate-100 rounded-2xl bg-white shadow-sm hover:shadow-md transition-all">
                           <div className="flex items-start justify-between mb-4">
                             <div>
                               <div className="flex items-center gap-2 mb-1">
@@ -7830,8 +7849,8 @@ export default function App() {
                             <div className="space-y-2">
                               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">변경 전 (기존)</span>
                               <div className="space-y-1">
-                                {Object.entries(update.oldData).map(([key, val]) => (
-                                  <div key={key} className="flex items-center justify-between text-[11px] font-mono text-slate-500">
+                                {Object.entries(update.oldData).map(([key, val], oIdx) => (
+                                  <div key={`old-${key}-${oIdx}`} className="flex items-center justify-between text-[11px] font-mono text-slate-500">
                                     <span className="opacity-60">{key}:</span>
                                     <span className="font-black text-slate-600">{val?.toLocaleString()}</span>
                                   </div>
@@ -7841,8 +7860,8 @@ export default function App() {
                             <div className="space-y-2 border-l border-slate-200 pl-4">
                               <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest">변경 후 (요청)</span>
                               <div className="space-y-1">
-                                {Object.entries(update.newData).map(([key, val]) => (
-                                  <div key={key} className="flex items-center justify-between text-[11px] font-mono text-indigo-600">
+                                {Object.entries(update.newData).map(([key, val], nIdx) => (
+                                  <div key={`new-${key}-${nIdx}`} className="flex items-center justify-between text-[11px] font-mono text-indigo-600">
                                     <span className="opacity-60">{key}:</span>
                                     <span className="font-black">{val?.toLocaleString()}</span>
                                   </div>
@@ -7860,150 +7879,14 @@ export default function App() {
           </Modal>
         )}
 
+        {/* VENDOR USER MANUAL (거래처 배포용 공식 사용설명서 모달) */}
         {isVendorGuideOpen && (
-          <Modal
-            key="modal-vendor-guide"
-            title="업체 전용 모드 사용방법 및 가이드"
+          <VendorUserManualModal
+            key="modal-vendor-user-manual"
+            isOpen={isVendorGuideOpen}
             onClose={() => setIsVendorGuideOpen(false)}
-            maxWidth="max-w-3xl"
-          >
-            <div className="space-y-6">
-              {/* Top Banner Card */}
-              <div className="bg-gradient-to-r from-indigo-50 to-indigo-100/50 p-5 rounded-2xl border border-indigo-100/60 flex items-start gap-3.5 shadow-sm">
-                <div className="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center shrink-0 shadow-md shadow-indigo-100 mt-0.5">
-                  <HelpCircle className="h-5 w-5 text-white" />
-                </div>
-                <div className="space-y-1">
-                  <h4 className="text-sm font-extrabold text-indigo-950">거래처 및 납품 단가 쉽고 빠른 가이드</h4>
-                  <p className="text-[11.5px] text-indigo-700 font-medium leading-relaxed">
-                    본 시스템은 (주)명신기공과 파트너 납품업체 간의 단가 소통을 디지털화하여 더욱 신속하고 명확하게 협의하기 위해 구축되었습니다. 아래 기능 가이드를 참조하시어 편리하게 대시보드를 운용해 보세요!
-                  </p>
-                </div>
-              </div>
-
-              {/* Grid content card representation */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                
-                {/* Step 1 */}
-                <div className="p-5 bg-white border border-slate-100 rounded-2xl shadow-sm hover:shadow-md hover:border-indigo-100 transition-all flex flex-col justify-between">
-                  <div>
-                    <div className="flex items-center gap-2 mb-3">
-                      <span className="w-6 h-6 rounded-lg bg-indigo-50 border border-indigo-100 flex items-center justify-center text-[11px] font-black text-indigo-600">1</span>
-                      <h4 className="text-xs font-black text-slate-800 uppercase tracking-tight">전용 포탈 인증 및 접속</h4>
-                    </div>
-                    <ul className="space-y-1.5 text-[11px] text-slate-500 font-semibold pl-1.5">
-                      <li className="flex items-start gap-1.5 leading-relaxed">
-                        <span className="text-indigo-500 shrink-0 mt-0.5">▪</span>
-                        <span>카카오톡/이메일로 전달받은 <strong className="text-slate-800">전용 링크(실시간 토큰 포함)</strong>로 접속하면 비밀번호 입력 과정 없이 보안 인증되어 즉시 전용 대시보드가 활성화됩니다.</span>
-                      </li>
-                      <li className="flex items-start gap-1.5 leading-relaxed mt-1">
-                        <span className="text-indigo-500 shrink-0 mt-0.5">▪</span>
-                        <span>일반 메인화면에서는 거래업체 사이드바에서 본인 업체를 누른 후 설정된 <strong className="text-slate-800">업체 비밀번호</strong>를 입력하면 대시보드 권한을 얻을 수 있습니다.</span>
-                      </li>
-                    </ul>
-                  </div>
-                </div>
-
-                {/* Step 2 */}
-                <div className="p-5 bg-white border border-slate-100 rounded-2xl shadow-sm hover:shadow-md hover:border-indigo-100 transition-all flex flex-col justify-between">
-                  <div>
-                    <div className="flex items-center gap-2 mb-3">
-                      <span className="w-6 h-6 rounded-lg bg-indigo-50 border border-indigo-100 flex items-center justify-center text-[11px] font-black text-indigo-600">2</span>
-                      <h4 className="text-xs font-black text-slate-800 uppercase tracking-tight">품목 조회 및 간편 검색</h4>
-                    </div>
-                    <ul className="space-y-1.5 text-[11px] text-slate-500 font-semibold pl-1.5">
-                      <li className="flex items-start gap-1.5 leading-relaxed">
-                        <span className="text-indigo-500 shrink-0 mt-0.5">▪</span>
-                        <span>귀사에서 납품하는 모든 단가 품목들이 카테고리별로 정갈하게 나열됩니다. 상단 헤더의 <strong className="text-slate-800">품명/규격 검색창</strong>을 이용해 방대한 항목 중에서 필요한 품목을 초성 및 키워드만으로 실시간 필터링할 수 있습니다.</span>
-                      </li>
-                      <li className="flex items-start gap-1.5 leading-relaxed mt-1">
-                        <span className="text-indigo-500 shrink-0 mt-0.5">▪</span>
-                        <span>각 셀에는 제조사(Maker), 참조단중, 기본 협가, 네고 방식, 그리고 최적 조율된 <strong>최종 납품단가</strong>가 한눈에 비교하기 쉽게 구성되어 있습니다.</span>
-                      </li>
-                    </ul>
-                  </div>
-                </div>
-
-                {/* Step 3 */}
-                <div className="p-5 bg-white border border-slate-100 rounded-2xl shadow-sm hover:shadow-md hover:border-indigo-100 transition-all flex flex-col justify-between">
-                  <div>
-                    <div className="flex items-center gap-2 mb-3">
-                      <span className="w-6 h-6 rounded-lg bg-indigo-50 border border-indigo-100 flex items-center justify-center text-[11px] font-black text-indigo-600">3</span>
-                      <h4 className="text-xs font-black text-slate-800 uppercase tracking-tight">카테고리 탭 드래그 앤 드롭 정렬</h4>
-                    </div>
-                    <ul className="space-y-1.5 text-[11px] text-slate-500 font-semibold pl-1.5">
-                      <li className="flex items-start gap-1.5 leading-relaxed">
-                        <span className="text-indigo-500 shrink-0 mt-0.5">▪</span>
-                        <span>취급품목 리스트의 카테고리 탭 들을 마우스로 잡아서 <strong className="text-indigo-600 uppercase">원하는 순서대로 드래그 앤 드롭</strong>하여 직관적으로 위치를 바꿀 수 있습니다.</span>
-                      </li>
-                      <li className="flex items-start gap-1.5 leading-relaxed mt-1">
-                        <span className="text-indigo-500 shrink-0 mt-0.5">▪</span>
-                        <span>자주 보거나 중요한 품목군을 앞으로 정렬하여 납품 업무 효율성을 극대화해 보세요. (자동으로 데이터베이스에 연동 및 보존됩니다)</span>
-                      </li>
-                    </ul>
-                  </div>
-                </div>
-
-                {/* Step 4 */}
-                <div className="p-5 bg-white border border-slate-100 rounded-2xl shadow-sm hover:shadow-md hover:border-indigo-100 transition-all flex flex-col justify-between">
-                  <div>
-                    <div className="flex items-center gap-2 mb-3">
-                      <span className="w-6 h-6 rounded-lg bg-indigo-50 border border-indigo-100 flex items-center justify-center text-[11px] font-black text-indigo-600">4</span>
-                      <h4 className="text-xs font-black text-slate-800 uppercase tracking-tight">개별/일괄 단가 수정 요청 (네고)</h4>
-                    </div>
-                    <ul className="space-y-1.5 text-[11px] text-slate-500 font-semibold pl-1.5">
-                      <li className="flex items-start gap-1.5 leading-relaxed">
-                        <span className="text-indigo-500 shrink-0 mt-0.5">▪</span>
-                        <span><strong className="text-slate-800">개별 수정</strong>: 품목별 우측 연필단추를 눌러 이름, 규격 외에 네고 상세방식(네고율% 또는 STS KG단중단가), 제조사 등을 맞춤 설정할 수 있습니다.</span>
-                      </li>
-                      <li className="flex items-start gap-1.5 leading-relaxed mt-1">
-                        <span className="text-indigo-500 shrink-0 mt-0.5">▪</span>
-                        <span><strong className="text-slate-800">일괄 네고 적용</strong>: 해당 카테고리 전체 또는 전체 품목에 대해 우측 상단의 일괄 네고 등록 버튼을 통해 수분 만에 단가 인하율/네고값을 일괄 기입하여 저장 및 전송할 수 있습니다.</span>
-                      </li>
-                    </ul>
-                  </div>
-                </div>
-
-                {/* Step 5 */}
-                <div className="p-5 bg-white border border-slate-100 rounded-2xl shadow-sm hover:shadow-md hover:border-indigo-100 transition-all col-span-full">
-                  <div className="flex items-center gap-2 mb-3">
-                    <span className="w-6 h-6 rounded-lg bg-indigo-50 border border-indigo-100 flex items-center justify-center text-[11px] font-black text-indigo-600">5</span>
-                    <h4 className="text-xs font-black text-slate-800 uppercase tracking-tight">과거 변동 이력(Log) 체크 및 관리자 승인제</h4>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <ul className="space-y-1.5 text-[11px] text-slate-500 font-semibold pl-1.5">
-                      <li className="flex items-start gap-1.5 leading-relaxed">
-                        <span className="text-indigo-500 shrink-0 mt-0.5">▪</span>
-                        <span><strong className="text-slate-800">수정 승인 대기</strong>: 보안 및 회계 투명성을 위해 업체에서 단가나 네고 수정을 진행하여 저장하면 즉시 <span className="text-amber-600 font-extrabold bg-amber-50 px-1 py-0.5 rounded border border-amber-150">승인 대기</span> 리스트로 올라갑니다.</span>
-                      </li>
-                      <li className="flex items-start gap-1.5 leading-relaxed mt-1">
-                        <span className="text-indigo-500 shrink-0 mt-0.5">▪</span>
-                        <span>명신기공 원자재관리팀에서 관리자용 승인 버튼을 클릭하는 즉시 최종 확정 상태로 데이터베이스에 등재됩니다.</span>
-                      </li>
-                    </ul>
-                    <ul className="space-y-1.5 text-[11px] text-slate-500 font-semibold pl-1.5 border-t md:border-t-0 md:border-l border-slate-100 pt-3 md:pt-0 md:pl-4">
-                      <li className="flex items-start gap-1.5 leading-relaxed">
-                        <span className="text-indigo-500 shrink-0 mt-0.5">▪</span>
-                        <span><strong className="text-indigo-600">단가 변동 이력 검정</strong>: 개별 품목 수정 모달창 안의 <strong className="text-indigo-600">‘가격 변동 이력’ 탭</strong>을 클릭하시면, 과거 해당 품목의 단가가 언제, 어떤 네고 조정을 통해 바뀌었는지 일자별 상세 가액 변동 로그를 표로 추적할 수 있습니다.</span>
-                      </li>
-                    </ul>
-                  </div>
-                </div>
-
-              </div>
-
-              {/* Bottom Footer Actions inside Modal */}
-              <div className="flex pt-4 border-t border-slate-100">
-                <button 
-                  type="button" 
-                  onClick={() => setIsVendorGuideOpen(false)} 
-                  className="w-full py-3.5 rounded-xl bg-slate-900 border border-transparent hover:bg-slate-800 text-white font-extrabold text-xs transition-colors shadow-lg shadow-slate-200"
-                >
-                  기억해두기 및 닫기
-                </button>
-              </div>
-            </div>
-          </Modal>
+            vendorName={selectedVendor?.name}
+          />
         )}
 
         {/* VENDOR DOCUMENTS MANAGEMENT MODAL */}
@@ -8057,7 +7940,7 @@ export default function App() {
 
                     {/* 3 Document Cards */}
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
-                      {docKeys.map(({ key, label, desc, icon: Icon }) => {
+                      {docKeys.map(({ key, label, desc, icon: Icon }, dIdx) => {
                         const url = selectedVendor[`${key}Url`];
                         const fileName = selectedVendor[`${key}FileName`] || `${label} 첨부파일`;
                         const fileType = selectedVendor[`${key}FileType`] || 'unknown';
@@ -8066,7 +7949,7 @@ export default function App() {
 
                         return (
                           <div
-                            key={`doc-card-${key}`}
+                            key={`doc-card-${key}-${dIdx}`}
                             className={`flex flex-col justify-between p-5 rounded-2xl border-2 transition-all ${
                               url 
                                 ? 'border-emerald-200 bg-white shadow-sm hover:shadow-md' 
@@ -8795,7 +8678,7 @@ export default function App() {
                 <div className="divide-y divide-slate-100 border border-slate-200 rounded-2xl overflow-hidden bg-white shadow-xs max-h-[60vh] overflow-y-auto">
                   {pendingContractVendors.map((vendor, idx) => (
                     <div 
-                      key={`pending-contract-vendor-${vendor.id}`}
+                      key={`pending-contract-vendor-${vendor.id}-${idx}`}
                       className="p-4 hover:bg-slate-50 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-3"
                     >
                       <div className="flex items-start gap-3 min-w-0">
