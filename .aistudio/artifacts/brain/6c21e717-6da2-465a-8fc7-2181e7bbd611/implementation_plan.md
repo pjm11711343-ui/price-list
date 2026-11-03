@@ -1,25 +1,96 @@
-# Implementation Plan - Add Maker Name to Comparison Matrix
+# 협력사 사용설명서 원클릭 PDF 다운로드 및 전체 인쇄 최적화
 
-Add the product maker (제조사) information to the comparison matrix view and Excel export to provide better context for unit price comparisons.
+협력사(납품업체)가 배포용 사용설명서를 클릭 한 번으로 완전한 A4 규격의 `.pdf` 파일로 즉시 다운로드하고, 브라우저 인쇄 시 잘림 현상 없이 전 페이지(6단계 가이드, 서류 안내, 요율 산식, FAQ)가 깔끔하게 출력되도록 기능을 고도화합니다.
 
-## 1. Update Data Processing
-- Modify the `matrixData` useMemo hook in `src/App.tsx`.
-- Include the `maker` field from the `PriceItem` into the grouped `prices` object for each vendor.
+## User Review & Critical Decisions
 
-## 2. Enhance Matrix UI
-- Locate the price cell rendering in the comparison matrix table.
-- Update the markup below the unit price to display the maker name.
-- Styling:
-  - Font: Smaller (text-[7px] or text-[8px]).
-  - Color: Subdued (text-slate-400).
-  - Layout: Displayed next to or below the nego rate with wrapping enabled (`whitespace-normal`).
+> [!IMPORTANT]
+> 협력사 실무자가 PC 및 모바일 환경에서 별도 브라우저 인쇄 설정 없이 즉시 `.pdf` 파일을 확보할 수 있도록 클라이언트 측 PDF 자동 생성 라이브러리를 적용하며, 기존 브라우저 인쇄 다이얼로그 또한 A4 다중 페이지 분할 규칙(`break-inside: avoid`, `overflow: visible`)을 통해 짤림 현상을 원천 차단합니다.
 
-## 3. Update Excel Export
-- Modify `downloadMatrixAsExcel` to include the maker name in the vendor price cells.
-- The format will be: `₩1,200 (Maker Name)` or a similar professional layout within the cell.
-- Ensure the Excel cell styling accommodates the additional text.
+- **Confirmed Decision 1**: PDF 파일 직접 다운로드 버튼과 브라우저 인쇄 기능 동시 지원 (확인 완료)
+- **Confirmed Decision 2**: A4 규격에 맞춘 단계별/항목별 깔끔한 페이지 분할(`page-break-inside: avoid`) 적용 (확인 완료)
 
-## 4. Verification
-- Verify the maker name appears correctly in the Matrix UI.
-- Test with short and long maker names to ensure wrapping works as intended.
-- Export to Excel and verify the maker name is present and formatted professionally.
+---
+
+### 1. Overview & Core Concept
+
+- **What It Does**: 
+  - 모달 상단 및 하단에 **[PDF 다운로드]** 전용 버튼을 배치하여, 클릭 시 브라우저 인쇄창을 거치지 않고 `(주)명신기공_협력사_단가관리_사용설명서.pdf` 파일이 즉시 다운로드됩니다.
+  - 기존 **[인쇄]** 버튼 실행 시 모달의 스크롤 컨테이너(`overflow: hidden`, `max-height`)로 인해 1페이지만 출력되고 잘리던 현상을 전용 `@media print` 스타일 및 프린트 전용 포털/격리 렌더링으로 개선하여 1페이지부터 마지막 4~5페이지까지 전체 내용이 잘림 없이 완벽하게 출력됩니다.
+- **Target Audience / Persona**:
+  - 명신기공 신규/기존 협력사 실무자 (영업/단가/회계 담당자), 사내 구매사업부 배포 담당자
+- **Key Value**:
+  - 거래처 배포 시 별도 캡처나 수동 인쇄 설정 없이 완성도 높은 공식 매뉴얼 문서 파일(.pdf)을 즉시 전송 및 영구 보관할 수 있습니다.
+
+---
+
+### 2. User Experience & Visual Design
+
+- **Key User Flows**:
+  1. 사용자가 협력사 포탈 상단 또는 관리자 화면에서 [협력사 배포용 사용설명서] 모달을 엽니다.
+  2. 상단 툴바에 새로 추가된 눈에 띄는 **[PDF 다운로드]** 버튼(인디고 컬러, 다운로드 아이콘, 스피너 로딩 피드백 지원)을 누릅니다.
+  3. "PDF 생성 중..." 인디케이터가 잠시 표시된 후, `(주)명신기공_협력사_단가관리_사용설명서.pdf` 파일이 브라우저 다운로드 폴더로 자동 저장됩니다.
+  4. 만약 종이 출력이나 브라우저 내장 인쇄를 원할 경우 **[전체 페이지 인쇄]** 버튼을 누르면, 모든 단계와 카드가 A4 규격에 맞게 자동 페이지 분할되어 짤림 없이 출력 미리보기가 표시됩니다.
+
+- **Visual Identity & Theme**:
+  - **Color Palette & Buttons**:
+    - `PDF 다운로드`: Indigo-600 베이스의 볼드 액션 버튼 (명신기공 아이덴티티와 일치)
+    - `전체 페이지 인쇄`: Slate-800 세컨더리 버튼
+    - `카톡/문자 안내문 복사`: Emerald/Indigo 전환 피드백 버튼
+  - **A4 Document Print Typography**:
+    - 인쇄 및 PDF 문서 내 헤더 공문 타이틀, 단계별 숫자 배지(01~06), 중요 경고 박스(🚨), 필수 증빙 서류 표, 요율 산식 예시, 회사 연락처 푸터가 명확한 대비와 정돈된 여백으로 렌더링됩니다.
+  - **Page Break Rhythm**:
+    - 표지 및 개요(공문 헤더, 3대 필수 준수사항) -> 1페이지
+    - Step 1 (비밀번호 변경) & Step 2 (발주서 메일 등록) & Step 3 (필수 증빙서류) -> 2페이지
+    - Step 4 (품목별 단가표 및 요율 작성법, 메이커 필수 강조) & Step 5 (STS 단중단가) -> 3페이지
+    - Step 6 (전자 계약서 상호 날인) & 자주 묻는 질문(FAQ) & 고객지원 푸터 -> 4페이지
+    - 각 섹션에 `page-break-inside: avoid`와 `break-inside: avoid`를 적용하여 텍스트나 표 중간이 잘리는 현상을 방지합니다.
+
+---
+
+### 3. Key Product Decisions & Trade-Offs
+
+- **Decision 1: PDF 생성 엔진 선정 (`html2pdf.js` / `jspdf` + `html2canvas`)**
+  - *Chosen Approach*: `html2pdf.js` (또는 `jspdf` + `html2canvas`)를 활용하여 브라우저에서 사용설명서 DOM 요소를 고해상도(scale 2) 캔버스로 변환 후 A4 규격 멀티페이지 PDF로 즉시 패키징하여 다운로드.
+  - *Why*: 서버 백엔드 의존성 없이 클라이언트 측에서 즉각적으로 고품질 PDF를 생성하므로 반응이 빠르고 오프라인에서도 동작하며, 시스템 폰트와 스타일을 그대로 보존합니다.
+  - *Alternatives Considered*: 서버 측 Puppeteer/PDFKit (추가 서버 프로세스 및 오버헤드 과다로 배제), 브라우저 단순 window.print() (사용자가 직접 대상 프린터를 PDF로 저장으로 바꾸어야 하고 미리보기가 잘리는 불편함 존재).
+
+- **Decision 2: 브라우저 인쇄 CSS 격리 (`@media print` 최적화)**
+  - *Chosen Approach*: 모달의 `fixed`, `overflow-hidden`, `max-height` 제약을 인쇄 시 해제하고, 인쇄 전용 CSS 클래스 및 스타일 태그를 통해 인쇄 대상 외 요소(`navbar`, `background overlays`, `action buttons`)를 숨김(`display: none !important`) 처리.
+  - *Why*: 브라우저 내장 인쇄 기능으로 종이 프린터나 PDF 저장을 진행할 때도 단 1줄의 내용도 잘리지 않고 전체 매뉴얼이 깨끗하게 출력됩니다.
+
+---
+
+### 4. Technical Architecture & Data Strategy
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│                      VendorUserManualModal.tsx                         │
+│                                                                        │
+│  ┌──────────────────────────────────────────────────────────────────┐  │
+│  │ 툴바 컨트롤 (상단 / 하단)                                        │  │
+│  │  [📥 PDF 파일 다운로드]    [🖨 전체 인쇄]    [📋 안내문 복사]     │  │
+│  └───────────────┬────────────────────────┬─────────────────────────┘  │
+│                  │                        │                            │
+│                  ▼                        ▼                            │
+│     ┌────────────────────────┐  ┌──────────────────────────────────┐   │
+│     │ handleDownloadPdf()    │  │ handlePrint()                    │   │
+│     │ - DOM 타겟 캡처        │  │ - @media print 스타일 주입       │   │
+│     │ - html2pdf / jspdf 변환│  │ - 모달 overflow 제약 일시 해제   │   │
+│     │ - A4 분할 및 다운로드  │  │ - window.print() 실행            │   │
+│     └────────────────────────┘  └──────────────────────────────────┘   │
+│                                                                        │
+│  ┌──────────────────────────────────────────────────────────────────┐  │
+│  │ printable-vendor-manual (전체 본문 컨테이너)                     │  │
+│  │  ├─ 01. 표지 공문 & 3대 핵심 보안 준수사항 (A4 Page 1)          │  │
+│  │  ├─ 02. 계정 보안 & 필수 증빙 서류 3종 등록 (A4 Page 2)          │  │
+│  │  ├─ 03. 단가표/요율 작성 & STS 단중단가 산식 (A4 Page 3)        │  │
+│  │  └─ 04. 전자계약서 날인 & FAQ & 고객지원 배너 (A4 Page 4)        │  │
+│  └──────────────────────────────────────────────────────────────────┘  │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+- **Interactive State & Handlers**:
+  - `isGeneratingPdf: boolean`: PDF 생성 진행 시 버튼에 스피너 애니메이션 표시 및 중복 클릭 방지.
+  - `handleDownloadPdf()`: A4 여백(margin: 10mm), 해상도 scale(2), 페이지 분할 규칙(`avoid-all`, `css`)을 적용하여 파일 다운로드 실행.
+  - `handlePrint()`: 모달 내부 스크롤이 아닌 전면 문서 인쇄로 유도.

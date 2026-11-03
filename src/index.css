@@ -6,27 +6,68 @@
 }
 
 @media print {
-  body {
+  @page {
+    size: A4 portrait;
+    margin: 12mm 10mm;
+  }
+  html, body {
+    height: auto !important;
+    min-height: 100% !important;
+    overflow: visible !important;
     background: white !important;
+    color: black !important;
   }
   body * {
     visibility: hidden;
+  }
+  .vendor-manual-backdrop {
+    position: static !important;
+    overflow: visible !important;
+    height: auto !important;
+    max-height: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: transparent !important;
+    backdrop-filter: none !important;
   }
   #printable-vendor-manual,
   #printable-vendor-manual * {
     visibility: visible;
   }
   #printable-vendor-manual {
-    position: absolute;
-    left: 0;
-    top: 0;
+    position: static !important;
+    left: auto !important;
+    top: auto !important;
     width: 100% !important;
     max-width: 100% !important;
+    height: auto !important;
     max-height: none !important;
     box-shadow: none !important;
     border: none !important;
     overflow: visible !important;
     padding: 0 !important;
     margin: 0 !important;
+    border-radius: 0 !important;
+  }
+  #printable-vendor-manual-body {
+    overflow: visible !important;
+    height: auto !important;
+    max-height: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+  .print-avoid-break {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+  .print-page-break {
+    page-break-before: always !important;
+    break-before: page !important;
+  }
+  .print\:hidden {
+    display: none !important;
+  }
+  .print\:block {
+    display: block !important;
   }
 }

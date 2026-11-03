@@ -1,6 +1,6 @@
 {
-  "summary":  "Implementation plan to add the Product Maker (제조사) name to the Unit Price Integration Comparison Matrix.\n- Update `matrixData` grouping logic to include the `maker` field for each vendor.\n- Enhance the Matrix UI to display the maker name next to the percentage rate in a smaller, subdued font.\n- Configure text wrapping for long maker names to maintain column integrity.\n- Update the professional Excel export to include the maker name alongside the unit price.",
-  "updatedAt":  "2026-11-01T07:05:49.980413201Z",
-  "requestFeedback":  true,
-  "userFacing":  true
+  "summary": "(주)명신기공 협력사 단가관리 시스템 사용설명서의 원클릭 PDF 파일 다운로드 기능 및 A4 전면 다중 페이지 인쇄 최적화 구현 계획",
+  "updatedAt": "2026-11-03T00:04:25.973277212Z",
+  "requestFeedback": true,
+  "userFacing": true
 }

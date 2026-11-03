@@ -24,9 +24,13 @@ import {
   ChevronUp,
   Layers,
   Sparkles,
-  Info
+  Info,
+  Loader2
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import html2pdf from 'html2pdf.js';
+import html2canvas from 'html2canvas';
+import { jsPDF } from 'jspdf';
 
 interface VendorUserManualModalProps {
   key?: React.Key;
@@ -43,12 +47,91 @@ export default function VendorUserManualModal({
   const [activeTab, setActiveTab] = useState<'all' | 'step1' | 'step2' | 'step3' | 'step4' | 'step5' | 'step6'>('all');
   const [copySuccess, setCopySuccess] = useState(false);
   const [openFaq, setOpenFaq] = useState<number | null>(null);
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
 
   if (!isOpen) return null;
 
-  // Print function
+  // Print function (A4 Multipage full print)
   const handlePrint = () => {
-    window.print();
+    setActiveTab('all');
+    setTimeout(() => {
+      window.print();
+    }, 150);
+  };
+
+  // Direct PDF Download (.pdf) function
+  const handleDownloadPdf = async () => {
+    if (isGeneratingPdf) return;
+    setIsGeneratingPdf(true);
+    setActiveTab('all');
+
+    try {
+      // Allow DOM to settle with all sections visible
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      const element = document.getElementById('printable-vendor-manual-body');
+      if (!element) {
+        throw new Error('문서 요소를 찾을 수 없습니다.');
+      }
+
+      const opt = {
+        margin: [10, 8, 10, 8] as [number, number, number, number],
+        filename: '(주)명신기공_협력사_단가관리_사용설명서.pdf',
+        image: { type: 'jpeg' as const, quality: 0.98 },
+        html2canvas: {
+          scale: 2,
+          useCORS: true,
+          logging: false,
+          scrollY: 0,
+          windowWidth: 1080
+        },
+        jsPDF: { unit: 'mm' as const, format: 'a4', orientation: 'portrait' as const },
+        pagebreak: { mode: ['css' as const, 'legacy' as const], avoid: ['.print-avoid-break', '.manual-step-card'] }
+      };
+
+      if (typeof html2pdf === 'function') {
+        await html2pdf().set(opt).from(element).save();
+      } else {
+        throw new Error('html2pdf is not callable');
+      }
+    } catch (err) {
+      console.warn('html2pdf fallback to html2canvas + jspdf:', err);
+      try {
+        const element = document.getElementById('printable-vendor-manual-body');
+        if (element) {
+          const canvas = await html2canvas(element, {
+            scale: 2,
+            useCORS: true,
+            logging: false,
+            backgroundColor: '#ffffff',
+            windowWidth: 1080
+          });
+          const imgData = canvas.toDataURL('image/jpeg', 0.95);
+          const pdf = new jsPDF('p', 'mm', 'a4');
+          const imgWidth = 210;
+          const pageHeight = 297;
+          const imgHeight = (canvas.height * imgWidth) / canvas.width;
+          let heightLeft = imgHeight;
+          let position = 0;
+
+          pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight);
+          heightLeft -= pageHeight;
+
+          while (heightLeft > 0) {
+            position = heightLeft - imgHeight;
+            pdf.addPage();
+            pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight);
+            heightLeft -= pageHeight;
+          }
+
+          pdf.save('(주)명신기공_협력사_단가관리_사용설명서.pdf');
+        }
+      } catch (fallbackErr) {
+        console.error('PDF export failed:', fallbackErr);
+        alert('PDF 생성 중 오류가 발생하였습니다. [전체 인쇄] 버튼을 누른 후 대상 프린터를 "PDF로 저장"으로 선택해 주십시오.');
+      }
+    } finally {
+      setIsGeneratingPdf(false);
+    }
   };
 
   // Download sample Excel template for vendors
@@ -126,7 +209,7 @@ export default function VendorUserManualModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-2 sm:p-4 backdrop-blur-sm overflow-y-auto">
+    <div className="vendor-manual-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-2 sm:p-4 backdrop-blur-sm overflow-y-auto">
       <div 
         id="printable-vendor-manual"
         className="w-full max-w-5xl bg-white rounded-3xl shadow-2xl flex flex-col max-h-[94vh] overflow-hidden border border-slate-200"
@@ -152,14 +235,35 @@ export default function VendorUserManualModal({
 
           <div className="flex items-center gap-2 print:hidden">
             <button
-              onClick={handlePrint}
-              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold transition-all border border-slate-700 active:scale-95 shadow-sm"
-              title="A4 규격 인쇄 또는 PDF로 저장"
+              type="button"
+              onClick={handleDownloadPdf}
+              disabled={isGeneratingPdf}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black transition-all border border-indigo-400/40 active:scale-95 shadow-md shadow-indigo-600/30 disabled:opacity-75 disabled:cursor-wait"
+              title="사용설명서 전체를 PDF 파일(.pdf)로 직접 다운로드"
             >
-              <Printer className="h-3.5 w-3.5 text-indigo-400" />
-              <span>인쇄 / PDF 저장</span>
+              {isGeneratingPdf ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-white" />
+                  <span>PDF 생성 중...</span>
+                </>
+              ) : (
+                <>
+                  <Download className="h-3.5 w-3.5 text-indigo-200" />
+                  <span>PDF 다운로드 (.pdf)</span>
+                </>
+              )}
             </button>
             <button
+              type="button"
+              onClick={handlePrint}
+              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold transition-all border border-slate-700 active:scale-95 shadow-sm"
+              title="A4 규격으로 전 페이지 잘림 없이 인쇄"
+            >
+              <Printer className="h-3.5 w-3.5 text-indigo-400" />
+              <span>전체 인쇄</span>
+            </button>
+            <button
+              type="button"
               onClick={handleCopyDistributionText}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border active:scale-95 shadow-sm ${
                 copySuccess 
@@ -172,6 +276,7 @@ export default function VendorUserManualModal({
               <span>{copySuccess ? '안내문 복사됨!' : '카톡/문자 안내문 복사'}</span>
             </button>
             <button
+              type="button"
               onClick={onClose}
               className="p-1.5 hover:bg-slate-800 rounded-full text-slate-400 hover:text-white transition-colors ml-1"
             >
@@ -219,7 +324,10 @@ export default function VendorUserManualModal({
         </div>
 
         {/* Scrollable Document Body */}
-        <div className="p-6 overflow-y-auto space-y-8 text-slate-700 leading-relaxed custom-scrollbar">
+        <div 
+          id="printable-vendor-manual-body"
+          className="p-6 overflow-y-auto space-y-8 text-slate-700 leading-relaxed custom-scrollbar print:overflow-visible print:max-h-none print:h-auto print:p-0"
+        >
 
           {/* OFFICIAL HEADER (Visible in Print & Screen) */}
           <div className="border-b-2 border-slate-900 pb-4 flex flex-col sm:flex-row sm:items-end justify-between gap-3">
@@ -243,7 +351,7 @@ export default function VendorUserManualModal({
           </div>
 
           {/* 🚨 3대 핵심 필수 수칙 하이라이트 배너 */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 print-avoid-break">
             {/* Warning 1 */}
             <div className="p-4.5 rounded-2xl bg-rose-50/80 border-2 border-rose-300 shadow-sm relative overflow-hidden">
               <div className="flex items-center gap-2.5 mb-2">
@@ -298,7 +406,7 @@ export default function VendorUserManualModal({
           {/* STEP 1. 최초 로그인 및 비밀번호 변경 (보안 필수) */}
           {/* ══════════════════════════════════════════════════════════════════════ */}
           {(activeTab === 'all' || activeTab === 'step1') && (
-            <section className="p-6 rounded-3xl bg-white border-2 border-slate-200/90 shadow-sm space-y-4">
+            <section className="print-avoid-break manual-step-card p-6 rounded-3xl bg-white border-2 border-slate-200/90 shadow-sm space-y-4">
               <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-xl bg-slate-900 text-white font-black text-sm flex items-center justify-center">
@@ -390,7 +498,7 @@ export default function VendorUserManualModal({
           {/* STEP 2. 발주서 수신용 공식 이메일 등록 */}
           {/* ══════════════════════════════════════════════════════════════════════ */}
           {(activeTab === 'all' || activeTab === 'step2') && (
-            <section className="p-6 rounded-3xl bg-white border-2 border-slate-200/90 shadow-sm space-y-4">
+            <section className="print-avoid-break manual-step-card p-6 rounded-3xl bg-white border-2 border-slate-200/90 shadow-sm space-y-4">
               <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-xl bg-slate-900 text-white font-black text-sm flex items-center justify-center">
@@ -464,7 +572,7 @@ export default function VendorUserManualModal({
           {/* STEP 3. 필수 증빙서류 3종 첨부 */}
           {/* ══════════════════════════════════════════════════════════════════════ */}
           {(activeTab === 'all' || activeTab === 'step3') && (
-            <section className="p-6 rounded-3xl bg-white border-2 border-slate-200/90 shadow-sm space-y-4">
+            <section className="print-avoid-break manual-step-card p-6 rounded-3xl bg-white border-2 border-slate-200/90 shadow-sm space-y-4">
               <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-xl bg-slate-900 text-white font-black text-sm flex items-center justify-center">
@@ -549,7 +657,7 @@ export default function VendorUserManualModal({
           {/* STEP 4. 품목별 메이커(제조사) 필수 입력 강력 강조! */}
           {/* ══════════════════════════════════════════════════════════════════════ */}
           {(activeTab === 'all' || activeTab === 'step4') && (
-            <section className="p-6 rounded-3xl bg-indigo-50/50 border-2 border-indigo-400 shadow-md space-y-4">
+            <section className="print-avoid-break manual-step-card p-6 rounded-3xl bg-indigo-50/50 border-2 border-indigo-400 shadow-md space-y-4">
               <div className="flex items-center justify-between border-b border-indigo-200 pb-3">
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-xl bg-indigo-700 text-white font-black text-sm flex items-center justify-center shadow-sm">
@@ -644,7 +752,7 @@ export default function VendorUserManualModal({
           {/* STEP 5. 취급 품목 단가표 작성 및 요율(네고율) 계산 방법 */}
           {/* ══════════════════════════════════════════════════════════════════════ */}
           {(activeTab === 'all' || activeTab === 'step5') && (
-            <section className="p-6 rounded-3xl bg-white border-2 border-slate-200/90 shadow-sm space-y-5">
+            <section className="print-avoid-break manual-step-card p-6 rounded-3xl bg-white border-2 border-slate-200/90 shadow-sm space-y-5">
               <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-xl bg-slate-900 text-white font-black text-sm flex items-center justify-center">
@@ -789,7 +897,7 @@ export default function VendorUserManualModal({
           {/* STEP 6. 전자 계약서 직인/도장 날인 회신 및 체결 */}
           {/* ══════════════════════════════════════════════════════════════════════ */}
           {(activeTab === 'all' || activeTab === 'step6') && (
-            <section className="p-6 rounded-3xl bg-white border-2 border-slate-200/90 shadow-sm space-y-4">
+            <section className="print-avoid-break manual-step-card p-6 rounded-3xl bg-white border-2 border-slate-200/90 shadow-sm space-y-4">
               <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-xl bg-slate-900 text-white font-black text-sm flex items-center justify-center">
@@ -870,7 +978,7 @@ export default function VendorUserManualModal({
           {/* ══════════════════════════════════════════════════════════════════════ */}
           {/* FAQ & CONTACT SUPPORT */}
           {/* ══════════════════════════════════════════════════════════════════════ */}
-          <section className="p-6 rounded-3xl bg-slate-50 border border-slate-200 space-y-4">
+          <section className="print-avoid-break manual-step-card p-6 rounded-3xl bg-slate-50 border border-slate-200 space-y-4">
             <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
               <HelpCircle className="h-5 w-5 text-indigo-600" />
               <h3 className="text-base font-black text-slate-900">자주 묻는 질문 (FAQ)</h3>
@@ -909,18 +1017,16 @@ export default function VendorUserManualModal({
                     </span>
                     {openFaq === idx ? <ChevronUp className="h-4 w-4 text-slate-400" /> : <ChevronDown className="h-4 w-4 text-slate-400" />}
                   </button>
-                  {openFaq === idx && (
-                    <div className="px-4 pb-3 pt-1 text-slate-600 border-t border-slate-100 bg-slate-50/50 leading-relaxed">
-                      <span className="text-emerald-600 font-black mr-1.5">A.</span>
-                      {faq.a}
-                    </div>
-                  )}
+                  <div className={`px-4 pb-3 pt-1 text-slate-600 border-t border-slate-100 bg-slate-50/50 leading-relaxed ${openFaq === idx ? 'block' : 'hidden print:block'}`}>
+                    <span className="text-emerald-600 font-black mr-1.5">A.</span>
+                    {faq.a}
+                  </div>
                 </div>
               ))}
             </div>
 
             {/* Official Support Footer Card */}
-            <div className="pt-4 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-slate-500">
+            <div className="pt-4 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-slate-500 print-avoid-break">
               <div>
                 <strong className="text-slate-800">(주)명신기공 원자재관리 및 구매사업부</strong>
                 <div className="text-[11px] text-slate-400 mt-0.5">시스템 문의, 비밀번호 초기화 및 품목 규격 상담</div>
@@ -933,12 +1039,40 @@ export default function VendorUserManualModal({
             </div>
           </section>
 
-          {/* Bottom Close Button (Screen only) */}
+          {/* Bottom Action & Close Buttons (Screen only) */}
           <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-3 print:hidden">
             <div className="text-xs text-slate-400">
-              * 본 설명서는 상단 [인쇄 / PDF 저장]을 통해 종이 문서 또는 PDF 파일로 간편 배포 가능합니다.
+              * 본 설명서는 상단 및 하단의 [PDF 다운로드]를 통해 `.pdf` 파일로 즉시 저장하거나 [전체 인쇄]로 종이 출력 가능합니다.
             </div>
-            <div className="flex items-center gap-2 w-full sm:w-auto">
+            <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+              <button
+                type="button"
+                onClick={handleDownloadPdf}
+                disabled={isGeneratingPdf}
+                className="flex-1 sm:flex-initial px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-xs transition-all shadow-md shadow-indigo-600/20 flex items-center justify-center gap-1.5 active:scale-95 disabled:opacity-75"
+                title="설명서 전체를 PDF 파일로 다운로드"
+              >
+                {isGeneratingPdf ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-white" />
+                    <span>PDF 생성 중...</span>
+                  </>
+                ) : (
+                  <>
+                    <Download className="h-3.5 w-3.5 text-indigo-200" />
+                    <span>PDF 파일 다운로드 (.pdf)</span>
+                  </>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={handlePrint}
+                className="flex-1 sm:flex-initial px-4 py-2.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 font-bold text-xs transition-colors flex items-center justify-center gap-1.5 shadow-xs"
+                title="A4 규격으로 전 페이지 잘림 없이 인쇄"
+              >
+                <Printer className="h-3.5 w-3.5 text-slate-500" />
+                <span>전체 인쇄</span>
+              </button>
               <button
                 type="button"
                 onClick={handleCopyDistributionText}
